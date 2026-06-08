@@ -1,58 +1,44 @@
-"""Count-in-anchored audio mix of several separately recorded takes.
+"""Lock several separately recorded audio takes into one tight mix -- no click.
 
-Each take is counted in percussively ("1-2-3-4"); we detect each take's downbeat
-independently, trim every take to its own downbeat so they all start at musical
-t=0, then mix. No metronome, no master mix needed -- the count-in is the anchor.
+Each take is counted in percussively ("1-2-3-4"); jam-yourself detects each
+take's downbeat (anchor), then warps each onto a steady common-tempo grid so
+they start together AND stay together for the whole take.
 
-For comparison we also write a naive mix (raw, from file start) so you can hear
-what the count-in anchoring buys.
+Writes three files so you can hear each stage:
+    mix_naive.wav         raw, from file start
+    mix_countin.wav       count-in anchored (starts together, may drift apart)
+    mix_straightened.wav  + beat-grid warp (stays locked)  <- the good one
 
 Usage:
-    python examples/audio_jam.py OUT_DIR  TAKE1.mp3  TAKE2.mp3  [...]
+    python examples/audio_jam.py OUT_DIR  TAKE1  TAKE2  [...]  [--bpm N]
 """
 import os
 import sys
 
-import numpy as np
 import soundfile as sf
 
 from jamyourself import countin as ci
 from jamyourself import engine as we
-
-
-def _mix(signals, target_rms=0.12):
-    """RMS-match each stem to a common loudness, then sum and peak-limit."""
-    leveled = []
-    for s in signals:
-        r = float(np.sqrt((s ** 2).mean())) + 1e-9
-        leveled.append(s * (target_rms / r))
-    n = min(len(s) for s in leveled)
-    m = np.sum([s[:n] for s in leveled], axis=0)
-    peak = float(np.abs(m).max()) + 1e-9
-    if peak > 0.97:
-        m *= 0.97 / peak
-    return m.astype(np.float32)
+from jamyourself.pipeline import make_audio_jam, mix_stems
 
 
 def main():
-    outdir, paths = sys.argv[1], sys.argv[2:]
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    bpm = next((float(sys.argv[i + 1]) for i, a in enumerate(sys.argv)
+                if a == "--bpm"), None)
+    outdir, paths = args[0], args[1:]
     os.makedirs(outdir, exist_ok=True)
 
-    raw, trimmed = [], []
-    for p in paths:
-        y = we.load_mono(p)
-        raw.append(y)
-        r = ci.detect_countin(y)
-        print(f"{os.path.basename(p):28s} downbeat={r['downbeat']:.3f}s  "
-              f"bpm={r['bpm']:.1f}  conf={r['confidence']:.2f}")
-        trimmed.append(ci.trim_to_downbeat(y, r["downbeat"]))
+    raw = [we.load_mono(p) for p in paths]
+    anchored = [ci.trim_to_downbeat(y, ci.detect_countin(y)["downbeat"])
+                for y in raw]
+    straight, info = make_audio_jam(paths, target_bpm=bpm)
 
-    naive = os.path.join(outdir, "mix_naive.wav")
-    anchored = os.path.join(outdir, "mix_countin.wav")
-    sf.write(naive, _mix(raw), we.SR)
-    sf.write(anchored, _mix(trimmed), we.SR)
-    print(f"\n✓ {naive}      (raw, from file start)")
-    print(f"✓ {anchored}   (count-in anchored -- the takes locked together)")
+    sf.write(os.path.join(outdir, "mix_naive.wav"), mix_stems(raw), we.SR)
+    sf.write(os.path.join(outdir, "mix_countin.wav"), mix_stems(anchored), we.SR)
+    sf.write(os.path.join(outdir, "mix_straightened.wav"), straight, we.SR)
+    print(f"\n✓ wrote mix_naive / mix_countin / mix_straightened to {outdir}")
+    print(f"  target tempo {info['target_bpm']:.1f} bpm")
 
 
 if __name__ == "__main__":
