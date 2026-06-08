@@ -27,31 +27,50 @@ def mix_stems(signals, target_rms=0.12):
     return (m * (0.97 / peak) if peak > 0.97 else m).astype(np.float32)
 
 
-def make_audio_jam(paths, target_bpm=None, log=print):
-    """Count-in anchor + beat-grid straighten + mix several audio takes.
+def _nudge(y, beats, period, sr=SR):
+    """Shift a stem by a whole number of beats: +later (pad front), -earlier."""
+    n = int(round(abs(beats) * period * sr))
+    if beats > 0:
+        return np.concatenate([np.zeros(n, dtype=y.dtype), y])
+    if beats < 0:
+        return y[n:]
+    return y
+
+
+def make_audio_jam(paths, target_bpm=None, nudges=None, log=print):
+    """Count-in anchor + beat-grid straighten + per-take beat nudge + mix.
 
     Each take is counted in percussively; we detect its downbeat, trim to it so
     all takes start at musical t=0, then warp each onto a steady common-tempo
-    grid so they stay locked for the whole take. Returns (mix, diagnostics)."""
+    grid so they stay locked for the whole take.
+
+    `nudges` is an optional list of whole-beat offsets per take. The count-in
+    fixes tempo and a downbeat, but WHICH beat is "the 1" is musically ambiguous
+    (a singer may come in a beat later than the guitar) and can't be inferred --
+    so the user shifts a take by +/- whole beats here. Returns (mix, diags)."""
+    nudges = nudges or [0] * len(paths)
     trimmed, bpms = [], []
     for p in paths:
         y = load_mono(p)
         r = detect_countin(y)
         log(f"{os.path.basename(p):24s} downbeat={r['downbeat']:.3f}s "
             f"bpm={r['bpm']:.1f} conf={r['confidence']:.2f}")
-        trimmed.append(( y, trim_to_downbeat(y, r["downbeat"]), r["bpm"] ))
+        trimmed.append((y, trim_to_downbeat(y, r["downbeat"]), r["bpm"]))
         bpms.append(r["bpm"])
 
     target_period = 60.0 / (target_bpm or float(np.median(bpms)))
     log(f"target tempo: {60.0 / target_period:.1f} bpm")
 
     straightened = []
-    for p, (_, yt, bpm) in zip(paths, trimmed):
+    for p, (_, yt, bpm), nb in zip(paths, trimmed, nudges):
         yw, d = straighten_to_grid(yt, target_period, start_bpm=bpm)
-        log(f"{os.path.basename(p):24s} {d['n_beats']} beats -> steady grid")
+        yw = _nudge(yw, nb, target_period)
+        log(f"{os.path.basename(p):24s} {d['n_beats']} beats -> steady grid"
+            + (f", nudge {nb:+d} beat" if nb else ""))
         straightened.append(yw)
 
     return mix_stems(straightened), {"target_bpm": 60.0 / target_period,
+                                     "beat_period": target_period,
                                      "n_takes": len(paths)}
 
 
