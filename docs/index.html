@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>jam-yourself · lock your one-man-band takes, no click</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header>
+    <h1>jam<span>-</span>yourself</h1>
+    <p class="tag">Be your own band. Count in <b>1-2-3-4</b>, play each part, and we
+      lock them together — no metronome.</p>
+  </header>
+
+  <section id="bar">
+    <label id="drop" class="drop">
+      <input type="file" id="file" accept="audio/*" multiple hidden />
+      <span>＋ drop / choose takes</span>
+    </label>
+    <div class="ctrl">
+      <label>tempo
+        <input type="number" id="bpm-input" placeholder="auto" min="40" max="220" />
+        <span class="hint">auto: <b id="bpm-auto">–</b></span>
+      </label>
+      <label class="chk"><input type="checkbox" id="keep-countin" /> keep count-in</label>
+      <button id="play">▶ Play mix</button>
+      <button id="download">⤓ WAV</button>
+    </div>
+    <div id="status" class="status"></div>
+  </section>
+
+  <section id="tracks"></section>
+
+  <section id="master">
+    <div class="master-head">
+      <h2>mix</h2>
+      <div class="legend">
+        <span><i class="c-count"></i> count-in</span>
+        <span><i class="c-down"></i> downbeat</span>
+        <span><i class="c-beat"></i> beat grid</span>
+        <span><i class="c-play"></i> playhead</span>
+      </div>
+    </div>
+    <canvas id="master-wave"></canvas>
+  </section>
+
+  <footer>
+    Runs entirely in your browser — your audio never leaves your machine.
+    <a href="https://github.com/" target="_blank" rel="noopener">jam-yourself</a>
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

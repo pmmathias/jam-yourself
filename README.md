@@ -134,6 +134,25 @@ pytest
   beat-grid warp is future work.
 - Tight takes (little real drift) render fine but show no visible warp — expected.
 
+## Web app (browser, no install)
+
+`docs/` is a **static, client-side web app** — the same engine ported to vanilla
+JS (own FFT, spectral-flux onset, autocorrelation tempo, Ellis beat tracker,
+count-in grid search, monotone PCHIP warp, [SoundTouch](https://www.surina.net/soundtouch/)
+time-stretch via WebAssembly). Drop your count-in takes, see each track with its
+detected count-in (red) / downbeat (green) / beat grid, then play and download
+the locked mix. **Your audio never leaves the browser.**
+
+```bash
+cd docs && python3 -m http.server 8000   # then open http://localhost:8000
+node tests/run.mjs                        # 26 DSP tests (run in Node)
+```
+
+Host it free on **GitHub Pages**: Settings → Pages → Source = `main` / `/docs`.
+
+The Python package stays the reference implementation; the web app mirrors the
+same steps with browser libraries (validated end-to-end in headless Chromium).
+
 ## Roadmap
 
 - [x] Tempo-warp engine (onset → DTW → monotone smooth curve → Rubber Band)
@@ -141,11 +160,12 @@ pytest
 - [x] Percussive count-in detection (start anchor + initial tempo)
 - [x] Apply the same warp curve to **video** (ffmpeg setpts polynomial)
 - [x] Side-by-side tiled video render (audio = master mix)
-- [x] End-to-end CLI
-- [ ] Wire count-in into the pipeline + robust cross-content offset fallback
-- [ ] Multi-track session model + auto master selection
+- [x] End-to-end CLI + per-take beat nudge + keep-count-in
+- [x] Multi-instrument lock via count-in anchor + beat-grid straighten
+- [x] **Browser app** (static, GitHub-Pages-ready, track UI with markers)
+- [ ] Video in the browser (ffmpeg.wasm) — tiled clips with the locked mix
 - [ ] Per-instrument onset detectors (drums → bass → guitar/keys)
 
 ## License
 
-MIT
+MIT (bundled SoundTouch.js is LGPL — see `docs/vendor/soundtouch.js`)
