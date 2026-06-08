@@ -1,9 +1,11 @@
-"""Tile N (already warped, already aligned) video streams side by side and lay
-the master mix under them as the soundtrack.
+"""Tile N (already warped, already aligned) video streams and lay the master mix
+under them as the soundtrack.
 
-All inputs are assumed to start at musical t=0 (each was trimmed to its own
-count-in downbeat and warped onto the master timeline), so they are simply
-stacked and played together. The audio you hear is the clean master mix.
+Each warped video carries master-clock timestamps (PTS), so a stem that started
+late simply appears late. We overlay every tile onto a black background with
+eof_action=pass, which preserves that alignment and shows black wherever a tile
+has no frame yet -- robust to stems of different start time and length (xstack
+would require every tile present in every frame and break on real material).
 """
 import math
 import subprocess
@@ -17,48 +19,43 @@ def _duration(path):
     return float(out)
 
 
-def _grid_layout(n, cell_w, cell_h):
-    """Return (cols, rows, layout_string) for ffmpeg xstack with uniform cells."""
+def _grid(n):
     cols = n if n <= 3 else math.ceil(math.sqrt(n))
     rows = math.ceil(n / cols)
-    entries = []
-    for i in range(n):
-        c, r = i % cols, i // cols
-        x = "0" if c == 0 else "+".join(["w0"] * c)
-        y = "0" if r == 0 else "+".join(["h0"] * r)
-        entries.append(f"{x}_{y}")
-    return cols, rows, "|".join(entries)
+    return cols, rows
 
 
 def render_tiles(videos, master_audio, out_path, cell_w=464, cell_h=832,
                  fps=30, fade_in=2.0, fade_out=2.0, crf=20, preset="medium"):
-    """Render tiled video with the master mix as audio.
-
-    videos: list of warped, aligned video paths. Returns dict with diagnostics.
-    """
+    """Render tiled video with the master mix as the soundtrack."""
     n = len(videos)
     if n == 0:
         raise ValueError("need at least one video")
-    dur = min([_duration(v) for v in videos] + [_duration(master_audio)])
+    dur = _duration(master_audio)               # the soundtrack defines length
+    cols, rows = _grid(n)
+    grid_w, grid_h = cols * cell_w, rows * cell_h
 
-    cols, rows, layout = _grid_layout(n, cell_w, cell_h)
-
-    parts = []
+    chains = [f"color=c=black:s={grid_w}x{grid_h}:r={fps}:d={dur:.4f}[bg]"]
     for i in range(n):
-        parts.append(
+        chains.append(
             f"[{i}:v]scale={cell_w}:{cell_h}:force_original_aspect_ratio=decrease,"
             f"pad={cell_w}:{cell_h}:(ow-iw)/2:(oh-ih)/2,setsar=1[v{i}]")
-    if n == 1:
-        stack = "[v0]copy[grid]"
-    else:
-        stack = "".join(f"[v{i}]" for i in range(n)) + \
-                f"xstack=inputs={n}:layout={layout}[grid]"
-    vfade = (f"[grid]fade=t=in:st=0:d={fade_in},"
-             f"fade=t=out:st={dur - fade_out}:d={fade_out},"
-             f"format=yuv420p[vout]")
-    afade = (f"[{n}:a]afade=t=in:st=0:d={fade_in},"
-             f"afade=t=out:st={dur - fade_out}:d={fade_out}[aout]")
-    filter_complex = ";".join(parts + [stack, vfade, afade])
+    prev = "bg"
+    for i in range(n):
+        c, r = i % cols, i // cols
+        x, y = c * cell_w, r * cell_h
+        nxt = "vout_pre" if i == n - 1 else f"t{i}"
+        chains.append(
+            f"[{prev}][v{i}]overlay={x}:{y}:eof_action=pass[{nxt}]")
+        prev = nxt
+    chains.append(
+        f"[vout_pre]fade=t=in:st=0:d={fade_in},"
+        f"fade=t=out:st={max(0, dur - fade_out):.4f}:d={fade_out},"
+        f"format=yuv420p[vout]")
+    chains.append(
+        f"[{n}:a]afade=t=in:st=0:d={fade_in},"
+        f"afade=t=out:st={max(0, dur - fade_out):.4f}:d={fade_out}[aout]")
+    filter_complex = ";".join(chains)
 
     cmd = ["ffmpeg", "-y"]
     for v in videos:
@@ -73,4 +70,4 @@ def render_tiles(videos, master_audio, out_path, cell_w=464, cell_h=832,
             "-movflags", "+faststart", out_path]
     subprocess.run(cmd, capture_output=True, check=True)
     return {"out": out_path, "n": n, "cols": cols, "rows": rows,
-            "duration": dur, "size": f"{cols*cell_w}x{rows*cell_h}"}
+            "duration": dur, "size": f"{grid_w}x{grid_h}"}

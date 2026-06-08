@@ -74,17 +74,39 @@ pip install -e .            # optional: install the package itself
 
 ## Usage
 
+Full pipeline — tile several takes under a master mix:
+
 ```bash
-# drums = rhythmic master, warp the bass take onto it
+jam-yourself --master mix.mp3 --out jam.mp4 \
+    --take drums.mp4:150:6000 \
+    --take bass.mp4:40:300
+```
+
+Each `--take` is `VIDEO[:LO:HI]`, where `LO:HI` is the instrument's frequency
+band in Hz (optional but strongly recommended for clean alignment).
+
+Just align one pair (audio only):
+
+```bash
 python examples/align_pair.py drums.mp4 bass.mp4 --band 40 300 --out bass_aligned.wav
 ```
 
 ```python
 from jamyourself import engine
-
 master = engine.load_mono("drums.mp4")
 bass   = engine.load_mono("bass.mp4")
 aligned, diag = engine.align_follower(master, bass, band=(40, 300))
+```
+
+### See the warp work
+
+`examples/drift_demo.py` takes a clean bass take, applies a known tempo drift to
+its picture *and* sound, then re-locks it — and renders a 3-up you can watch
+(`clean | drifted (slips) | corrected (locked)`):
+
+```bash
+python examples/drift_demo.py bass.mp4 ./out
+# -> ./out/jam_drift_demo.mp4   (drift 159ms -> 25ms, 85% removed)
 ```
 
 Run the tests:
@@ -93,15 +115,28 @@ Run the tests:
 pytest
 ```
 
+## Status & known limits
+
+- **Tempo-warp engine: solid.** Removes ~85–90% of injected drift on real and
+  synthetic stems; warp curve is monotone; video stays locked to audio.
+- **Cross-instrument auto-alignment relies on a count-in.** Aligning a bass take
+  directly against a full master mix (different spectral content) via rigid
+  cross-correlation is fragile — a heavily drifted take can get a wrong global
+  offset. The fix is the percussive count-in (each take anchored to its own
+  musical t=0); detection is built but **not yet wired into the pipeline**, and
+  needs real count-in material to validate.
+- Tight takes (little real drift) render fine but show no visible warp — expected.
+
 ## Roadmap
 
 - [x] Tempo-warp engine (onset → DTW → monotone smooth curve → Rubber Band)
 - [x] Ground-truth validation harness
-- [ ] Percussive count-in detection (start anchor + initial tempo)
-- [ ] Apply the same warp curve to **video** (frame-accurate, optical-flow
-      interpolation for smoothness)
+- [x] Percussive count-in detection (start anchor + initial tempo)
+- [x] Apply the same warp curve to **video** (ffmpeg setpts polynomial)
+- [x] Side-by-side tiled video render (audio = master mix)
+- [x] End-to-end CLI
+- [ ] Wire count-in into the pipeline + robust cross-content offset fallback
 - [ ] Multi-track session model + auto master selection
-- [ ] Side-by-side tiled video render (audio = master mix)
 - [ ] Per-instrument onset detectors (drums → bass → guitar/keys)
 
 ## License

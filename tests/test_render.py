@@ -31,4 +31,4 @@ def test_two_up_render(tmp_path):
                                fade_in=1, fade_out=1)
     assert out.exists() and out.stat().st_size > 0
     assert info["size"] == "928x832"
-    assert abs(info["duration"] - 6.0) < 0.2   # min of all inputs
+    assert abs(info["duration"] - 6.5) < 0.2   # master mix defines length
