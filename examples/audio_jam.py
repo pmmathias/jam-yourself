@@ -1,28 +1,25 @@
 """Lock several separately recorded audio takes into one tight mix -- no click.
 
 Each take is counted in percussively ("1-2-3-4"); jam-yourself detects each
-take's downbeat (anchor), then warps each onto a steady common-tempo grid so
-they start together AND stay together for the whole take.
-
-Writes three files so you can hear each stage:
-    mix_naive.wav         raw, from file start
-    mix_countin.wav       count-in anchored (starts together, may drift apart)
-    mix_straightened.wav  + beat-grid warp (stays locked)  <- the good one
+take, warps it onto a steady common-tempo grid (so the takes start together AND
+stay locked), optionally keeps the count-in audible, applies a per-take whole-
+beat nudge, and mixes. Writes mix.wav.
 
 Usage:
-    python examples/audio_jam.py OUT_DIR  TAKE1 TAKE2 [...]  [--bpm N] [--nudge 0,-1]
+    python examples/audio_jam.py OUT_DIR TAKE1 TAKE2 [...] \\
+        [--bpm N] [--nudge=-1,0] [--keep-countin]
 
---nudge is a comma list of whole-beat offsets, one per take, to resolve the
-"which beat is the 1" ambiguity (e.g. a vocal that comes in a beat late).
+--nudge: one whole-beat offset per take to fix which beat is "the 1" (a vocal
+that comes in a beat late -> --nudge=-1,0). Use '=' so the leading - parses.
+--keep-countin: leave the "1-2-3-4" in (aligned at count 1) to check by ear.
 """
 import argparse
 import os
 
 import soundfile as sf
 
-from jamyourself import countin as ci
 from jamyourself import engine as we
-from jamyourself.pipeline import make_audio_jam, mix_stems
+from jamyourself.pipeline import make_audio_jam
 
 
 def main():
@@ -31,26 +28,27 @@ def main():
     ap.add_argument("takes", nargs="+")
     ap.add_argument("--bpm", type=float, default=None)
     ap.add_argument("--nudge", default=None,
-                    help="comma list of whole-beat offsets per take, e.g. 0,-1")
+                    help="whole-beat offset per take to fix which beat is the 1, "
+                         "e.g. --nudge=-1,0 (use '=' so leading - parses)")
+    ap.add_argument("--keep-countin", action="store_true",
+                    help="keep the '1-2-3-4' audible (align at count 1)")
     args = ap.parse_args()
     os.makedirs(args.outdir, exist_ok=True)
 
     nudges = None
     if args.nudge:
-        nudges = [int(x) for x in args.nudge.split(",")]
+        nudges = [int(x) for x in args.nudge.replace(" ", "").split(",")]
         if len(nudges) != len(args.takes):
             ap.error("--nudge must have one value per take")
 
-    raw = [we.load_mono(p) for p in args.takes]
-    anchored = [ci.trim_to_downbeat(y, ci.detect_countin(y)["downbeat"])
-                for y in raw]
-    straight, info = make_audio_jam(args.takes, target_bpm=args.bpm, nudges=nudges)
-
-    sf.write(os.path.join(args.outdir, "mix_naive.wav"), mix_stems(raw), we.SR)
-    sf.write(os.path.join(args.outdir, "mix_countin.wav"), mix_stems(anchored), we.SR)
-    sf.write(os.path.join(args.outdir, "mix_straightened.wav"), straight, we.SR)
-    print(f"\n✓ wrote mix_naive / mix_countin / mix_straightened to {args.outdir}")
-    print(f"  target tempo {info['target_bpm']:.1f} bpm")
+    straight, info = make_audio_jam(args.takes, target_bpm=args.bpm,
+                                    nudges=nudges,
+                                    keep_countin=args.keep_countin)
+    out = os.path.join(args.outdir, "mix.wav")
+    sf.write(out, straight, we.SR)
+    print(f"\n✓ {out}   (target {info['target_bpm']:.1f} bpm"
+          + (", count-in kept" if info['keep_countin'] else "") + ")")
+    print("  tweak alignment with --nudge=<beats-per-take>, e.g. --nudge=-1,0")
 
 
 if __name__ == "__main__":

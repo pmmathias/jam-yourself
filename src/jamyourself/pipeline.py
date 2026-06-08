@@ -37,32 +37,38 @@ def _nudge(y, beats, period, sr=SR):
     return y
 
 
-def make_audio_jam(paths, target_bpm=None, nudges=None, log=print):
+def make_audio_jam(paths, target_bpm=None, nudges=None, keep_countin=False,
+                   log=print):
     """Count-in anchor + beat-grid straighten + per-take beat nudge + mix.
 
-    Each take is counted in percussively; we detect its downbeat, trim to it so
-    all takes start at musical t=0, then warp each onto a steady common-tempo
-    grid so they stay locked for the whole take.
+    Each take is counted in percussively; we detect it, then warp each onto a
+    steady common-tempo grid so the takes stay locked for the whole song.
+
+    keep_countin=False (default): trim each take to its downbeat -> clean mix,
+    music only. keep_countin=True: keep from the FIRST count so the "1-2-3-4" is
+    audible (aligned at count 1) -- handy for checking alignment by ear.
 
     `nudges` is an optional list of whole-beat offsets per take. The count-in
     fixes tempo and a downbeat, but WHICH beat is "the 1" is musically ambiguous
     (a singer may come in a beat later than the guitar) and can't be inferred --
     so the user shifts a take by +/- whole beats here. Returns (mix, diags)."""
     nudges = nudges or [0] * len(paths)
-    trimmed, bpms = [], []
+    prepped, bpms = [], []
     for p in paths:
         y = load_mono(p)
         r = detect_countin(y)
+        anchor = r["counts"][0] if keep_countin else r["downbeat"]
         log(f"{os.path.basename(p):24s} downbeat={r['downbeat']:.3f}s "
             f"bpm={r['bpm']:.1f} conf={r['confidence']:.2f}")
-        trimmed.append((y, trim_to_downbeat(y, r["downbeat"]), r["bpm"]))
+        prepped.append((trim_to_downbeat(y, anchor), r["bpm"]))
         bpms.append(r["bpm"])
 
     target_period = 60.0 / (target_bpm or float(np.median(bpms)))
-    log(f"target tempo: {60.0 / target_period:.1f} bpm")
+    log(f"target tempo: {60.0 / target_period:.1f} bpm"
+        + ("  (count-in kept)" if keep_countin else ""))
 
     straightened = []
-    for p, (_, yt, bpm), nb in zip(paths, trimmed, nudges):
+    for p, (yt, bpm), nb in zip(paths, prepped, nudges):
         yw, d = straighten_to_grid(yt, target_period, start_bpm=bpm)
         yw = _nudge(yw, nb, target_period)
         log(f"{os.path.basename(p):24s} {d['n_beats']} beats -> steady grid"
@@ -71,6 +77,7 @@ def make_audio_jam(paths, target_bpm=None, nudges=None, log=print):
 
     return mix_stems(straightened), {"target_bpm": 60.0 / target_period,
                                      "beat_period": target_period,
+                                     "keep_countin": keep_countin,
                                      "n_takes": len(paths)}
 
 
