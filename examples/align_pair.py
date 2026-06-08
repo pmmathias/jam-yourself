@@ -11,7 +11,7 @@ import argparse
 import numpy as np
 import soundfile as sf
 
-from clickless import engine as we
+from jamyourself import engine as we
 
 
 def main():

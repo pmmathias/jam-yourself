@@ -1,16 +1,16 @@
-# clickless
+# jam-yourself
 
 **Lay your good studio audio under your phone videos — even though every take
 drifts in tempo and none of them used a click track.**
 
-`clickless` is for one-man-band songwriters and YouTubers who record each
+`jam-yourself` is for one-man-band songwriters and YouTubers who record each
 instrument separately (drums, then bass, then guitar…) into GarageBand while
 filming themselves on a phone — and then want a single video where you see
 yourself playing *n* instruments side by side, but hear the clean,
 GarageBand-recorded tracks.
 
 The hard part: you don't play to a metronome, so the takes drift relative to
-each other, and each phone clip starts at a different moment. `clickless`
+each other, and each phone clip starts at a different moment. `jam-yourself`
 removes that drift computationally so the layers lock together.
 
 > Status: **early prototype.** The core tempo-warp engine is validated on
@@ -80,7 +80,7 @@ python examples/align_pair.py drums.mp4 bass.mp4 --band 40 300 --out bass_aligne
 ```
 
 ```python
-from clickless import engine
+from jamyourself import engine
 
 master = engine.load_mono("drums.mp4")
 bass   = engine.load_mono("bass.mp4")

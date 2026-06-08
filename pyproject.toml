@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "clickless"
+name = "jam-yourself"
 version = "0.0.1"
 description = "Align multi-instrument one-man-band takes without a click track."
 readme = "README.md"

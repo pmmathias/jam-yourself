@@ -9,7 +9,7 @@ import numpy as np
 import pyrubberband as pyrb
 import pytest
 
-from clickless import engine as we
+from jamyourself import engine as we
 
 SR = we.SR
 

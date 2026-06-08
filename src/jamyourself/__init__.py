@@ -1,4 +1,4 @@
-"""clickless -- align multi-instrument takes without a click track."""
+"""jamyourself -- align multi-instrument takes without a click track."""
 from .engine import (
     SR,
     align_follower,
