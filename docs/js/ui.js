@@ -2,11 +2,11 @@
 // and the per-track row DOM. The "see your tracks" part.
 
 const COL = {
-  wave: "#6ee7ff",
-  count: "#ff5a5a",
-  downbeat: "#3ddc84",
-  beat: "rgba(255,255,255,0.12)",
-  playhead: "#ffd166",
+  wave: "#22d3ee",                  // cyan-400
+  count: "#fb7185",                 // rose-400
+  downbeat: "#f59e0b",              // amber-500
+  beat: "rgba(255,255,255,0.10)",
+  playhead: "#67e8f9",              // cyan-300
   grid: "rgba(255,255,255,0.05)",
 };
 
