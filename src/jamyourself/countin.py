@@ -16,35 +16,25 @@ import librosa
 
 from .engine import SR, HOP, load_mono  # noqa: F401  (load_mono re-exported)
 
-# plausible beat period for the count-in: 50..240 bpm
-_MIN_IOI = 0.25
-_MAX_IOI = 1.20
-
-
-def _global_tempo(env, sr, hop):
-    try:
-        from librosa.feature.rhythm import tempo as _tempo
-    except Exception:                               # older librosa
-        from librosa.beat import tempo as _tempo
-    return float(np.atleast_1d(
-        _tempo(onset_envelope=env, sr=sr, hop_length=hop))[0])
+# plausible beat period for a counted-in "1-2-3-4": ~75..176 bpm. The upper
+# bound (0.8s) is deliberately below ~1s so the search cannot lock onto HALF the
+# real tempo (a classic failure on a steady count), and the lower bound keeps it
+# off double-tempo subdivisions.
+_MIN_IOI = 0.34
+_MAX_IOI = 0.80
 
 
 def detect_countin(y, sr=SR, hop=HOP, search_s=8.0, n_counts=4, tol=0.08,
-                   t0_window=1.6):
+                   t0_window=2.5):
     """Find the percussive count-in at the start of `y`.
 
-    The count-in shares the song tempo (you count at the song's speed), so it
-    cannot be told from the music by tempo -- only by POSITION: it is the first
-    regular pulse. So we:
-
-      1. estimate the global tempo (autocorrelation over the whole take), which
-         pins the beat PERIOD and resolves half/double-tempo ambiguity that a
-         pure grid search falls for;
-      2. for the earliest onset (the first count) find the phase: the beat period
-         near the global tempo whose grid t0 + k*b lands an onset within `tol` on
-         every one of the n_counts counts; among tempo octaves, prefer the one
-         whose continued pulse explains the most onsets (coverage).
+    A count-in is the first run of `n_counts` evenly spaced onsets at a sane
+    counting tempo, right before the music. We grid-search: for the EARLIEST
+    onset that admits a full grid t0 + k*b (every count within `tol` of a real
+    onset, b in the counting-tempo range), take it -- a stray onset before the
+    count can't form a 4-grid, so it is skipped automatically; capping b below
+    ~1s blocks half-tempo locks. Among fits for that t0, prefer the beat period
+    whose continued pulse explains the most onsets (coverage), then the tightest.
 
     Extra onsets between counts (string noise, finger taps) are tolerated.
     Returns dict: downbeat (s), bpm, beat_period (s), counts, confidence.
@@ -58,39 +48,33 @@ def detect_countin(y, sr=SR, hop=HOP, search_s=8.0, n_counts=4, tol=0.08,
         raise ValueError(f"only {len(frames)} onsets found; need {n_counts}")
     times = frames * hop / sr
 
-    b0 = 60.0 / _global_tempo(env, sr, hop)
-    # tempo octaves, each searched in a narrow +/-10% band (fine phase/tempo fit)
-    centers = [c for c in (b0 / 2, b0, b0 * 2) if _MIN_IOI <= c <= _MAX_IOI]
-
     def coverage(t0, b):
         grid = np.arange(t0, search_s, b)
-        hit = sum(np.min(np.abs(times - g)) <= tol for g in grid)
-        return hit
+        return int(sum(np.min(np.abs(times - g)) <= tol for g in grid))
 
     best = None
     for t0 in times[times <= t0_window]:
         cands = []
-        for c in centers:
-            for b in np.arange(c * 0.9, c * 1.1, 0.003):
-                grid = t0 + b * np.arange(n_counts)
-                if grid[-1] > search_s:
+        for b in np.arange(_MIN_IOI, _MAX_IOI + 1e-9, 0.003):
+            grid = t0 + b * np.arange(n_counts)
+            if grid[-1] > search_s:
+                break
+            idx, err, ok = [], 0.0, True
+            for g in grid:
+                d = np.abs(times - g)
+                j = int(d.argmin())
+                if d[j] > tol:
+                    ok = False
                     break
-                idx, err, ok = [], 0.0, True
-                for g in grid:
-                    d = np.abs(times - g)
-                    j = int(d.argmin())
-                    if d[j] > tol:
-                        ok = False
-                        break
-                    idx.append(j)
-                    err += d[j]
-                if ok:
-                    cands.append((coverage(t0, b), -err, b, idx))
+                idx.append(j)
+                err += d[j]
+            if ok:
+                cands.append((coverage(t0, b), -err, b, idx))
         if cands:
             cands.sort(reverse=True)               # max coverage, then min err
             _, _, b, idx = cands[0]
             best = {"idx": idx, "t0": t0, "b": b}
-            break                                  # earliest t0 wins
+            break                                  # earliest valid t0 wins
     if best is None:
         raise ValueError("no evenly-spaced count-in found")
 
