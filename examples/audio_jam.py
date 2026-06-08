@@ -20,10 +20,18 @@ from jamyourself import countin as ci
 from jamyourself import engine as we
 
 
-def _mix(signals):
-    n = min(len(s) for s in signals)
-    m = np.sum([s[:n] for s in signals], axis=0)
-    return (m / (np.abs(m).max() + 1e-9) * 0.97).astype(np.float32)
+def _mix(signals, target_rms=0.12):
+    """RMS-match each stem to a common loudness, then sum and peak-limit."""
+    leveled = []
+    for s in signals:
+        r = float(np.sqrt((s ** 2).mean())) + 1e-9
+        leveled.append(s * (target_rms / r))
+    n = min(len(s) for s in leveled)
+    m = np.sum([s[:n] for s in leveled], axis=0)
+    peak = float(np.abs(m).max()) + 1e-9
+    if peak > 0.97:
+        m *= 0.97 / peak
+    return m.astype(np.float32)
 
 
 def main():
