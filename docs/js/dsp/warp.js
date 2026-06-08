@@ -1,0 +1,68 @@
+// Monotone cubic (PCHIP / Fritsch-Carlson) interpolation -- the shape-preserving
+// warp curve. Monotone so warped time never runs backwards.
+
+export class Pchip {
+  constructor(xs, ys) {
+    // assume xs strictly increasing
+    const n = xs.length;
+    this.xs = Float64Array.from(xs);
+    this.ys = Float64Array.from(ys);
+    const h = new Float64Array(n - 1);
+    const delta = new Float64Array(n - 1);
+    for (let i = 0; i < n - 1; i++) {
+      h[i] = xs[i + 1] - xs[i];
+      delta[i] = (ys[i + 1] - ys[i]) / h[i];
+    }
+    const m = new Float64Array(n);
+    m[0] = delta[0];
+    m[n - 1] = delta[n - 2];
+    for (let i = 1; i < n - 1; i++) {
+      if (delta[i - 1] * delta[i] <= 0) {
+        m[i] = 0;
+      } else {
+        const w1 = 2 * h[i] + h[i - 1];
+        const w2 = h[i] + 2 * h[i - 1];
+        m[i] = (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i]);
+      }
+    }
+    this.m = m;
+  }
+
+  evalScalar(x) {
+    const { xs, ys, m } = this;
+    const n = xs.length;
+    if (x <= xs[0]) return ys[0] + m[0] * (x - xs[0]); // linear extrap
+    if (x >= xs[n - 1]) return ys[n - 1] + m[n - 1] * (x - xs[n - 1]);
+    let lo = 0, hi = n - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (xs[mid] <= x) lo = mid; else hi = mid;
+    }
+    const h = xs[lo + 1] - xs[lo];
+    const t = (x - xs[lo]) / h;
+    const t2 = t * t, t3 = t2 * t;
+    const h00 = 2 * t3 - 3 * t2 + 1;
+    const h10 = t3 - 2 * t2 + t;
+    const h01 = -2 * t3 + 3 * t2;
+    const h11 = t3 - t2;
+    return h00 * ys[lo] + h10 * h * m[lo] + h01 * ys[lo + 1] + h11 * h * m[lo + 1];
+  }
+
+  eval(xArr) {
+    const out = new Float64Array(xArr.length);
+    for (let i = 0; i < xArr.length; i++) out[i] = this.evalScalar(xArr[i]);
+    return out;
+  }
+}
+
+// Warp curve f: take-time -> grid-time, mapping each tracked beat onto a steady
+// grid of `targetPeriod` seconds. beats[] in seconds (beat 0 at/near t=0).
+export function warpCurveFromBeats(beats, targetPeriod) {
+  let b = beats.slice();
+  if (b.length === 0 || b[0] > 0.25) b = [0, ...b];
+  // strictly increasing
+  const xs = [b[0]];
+  for (let i = 1; i < b.length; i++) if (b[i] > xs[xs.length - 1] + 1e-3) xs.push(b[i]);
+  const ys = xs.map((_, k) => k * targetPeriod);
+  return new Pchip(xs, ys);
+}
