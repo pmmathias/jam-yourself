@@ -24,22 +24,26 @@ _MIN_IOI = 0.34
 _MAX_IOI = 0.80
 
 
-def detect_countin(y, sr=SR, hop=HOP, search_s=8.0, n_counts=4, tol=0.08,
-                   t0_window=2.5):
-    """Find the percussive count-in at the start of `y`.
+def detect_countin(y, sr=SR, hop=HOP, search_s=10.0, n_counts=4, tol=0.08,
+                   t0_window=None):
+    """Find the percussive count-in near the start of `y`.
 
     A count-in is the first run of `n_counts` evenly spaced onsets at a sane
     counting tempo, right before the music. We grid-search: for the EARLIEST
     onset that admits a full grid t0 + k*b (every count within `tol` of a real
-    onset, b in the counting-tempo range), take it -- a stray onset before the
-    count can't form a 4-grid, so it is skipped automatically; capping b below
-    ~1s blocks half-tempo locks. Among fits for that t0, prefer the beat period
-    whose continued pulse explains the most onsets (coverage), then the tightest.
+    onset, b in the counting-tempo range), take it -- a stray onset (or noise /
+    tuning before the count) can't form a 4-grid, so it is skipped automatically;
+    capping b below ~1s blocks half-tempo locks. Among fits for that t0, prefer
+    the beat period whose continued pulse explains the most onsets (coverage),
+    then the tightest. The count-in need NOT be at the very start (there may be
+    talking/tuning first); t0_window defaults to the whole search window.
 
     Extra onsets between counts (string noise, finger taps) are tolerated.
     Returns dict: downbeat (s), bpm, beat_period (s), counts, confidence.
     Raises ValueError if no count-in is found.
     """
+    if t0_window is None:
+        t0_window = search_s
     env = librosa.onset.onset_strength(y=y[: int(search_s * sr)], sr=sr,
                                        hop_length=hop)
     frames = librosa.onset.onset_detect(onset_envelope=env, sr=sr,
