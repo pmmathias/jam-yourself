@@ -116,5 +116,22 @@ for (const bpm of [100, 120, 144]) {
   ok(peak <= 0.98, `mix peak-limited (${peak.toFixed(3)})`);
 }
 
+// ---- 9. time-varying warp stretch (SoundTouch) -----------------------------
+{
+  const { warpStretch } = await import("../js/dsp/stretch.js");
+  const { Pchip } = await import("../js/dsp/warp.js");
+  const iv = []; for (let k = 0; k < 20; k++) iv.push(0.5 * (1 + 0.12 * Math.sin((2 * Math.PI * k) / 8)));
+  let t = 0; const times = [t]; for (const x of iv) { t += x; times.push(t); }
+  const y = place(times, t + 0.5);
+  const warp = new Pchip(times, times.map((_, k) => k * 0.5)); // -> steady 0.5s
+  const warped = warpStretch(y, warp);
+  const expLen = Math.round(warp.evalScalar(y.length / SR) * SR);
+  near(warped.length, expLen, SR * 0.1, "warp-stretch output length");
+  const before = framesToTimes(pickOnsets(onsetEnvelope(y)));
+  const after = framesToTimes(pickOnsets(onsetEnvelope(warped)));
+  const sd = (o) => { const a = o.slice(1).map((x, i) => x - o[i]).filter((d) => d > 0.2 && d < 0.9); const m = a.reduce((p, q) => p + q, 0) / a.length; return Math.sqrt(a.reduce((p, q) => p + (q - m) ** 2, 0) / a.length); };
+  ok(sd(after) < sd(before), `stretch reduces drift sd (${(sd(before) * 1000).toFixed(0)}->${(sd(after) * 1000).toFixed(0)}ms)`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
