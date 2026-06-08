@@ -135,7 +135,7 @@ def warp_audio(y_fol, warp_fn, sr=SR, anchors_per_s=50):
 
 # ---------------------------------------------------------------- end-to-end
 def align_follower(master_y, follower_y, band=None, sr=SR, bin_s=0.5,
-                   band_s=2.0, verbose=False):
+                   band_s=2.0, prealigned=False, verbose=False):
     """Full chain: warp follower onto the master timeline.
 
     Step 1 removes the rigid offset (FFT xcorr) by zero-padding the lagging
@@ -143,15 +143,23 @@ def align_follower(master_y, follower_y, band=None, sr=SR, bin_s=0.5,
     DTW to pick up only the residual drift; the offset is then folded back into
     the warp curve so it maps original-follower-time -> master-time.
 
+    Set `prealigned=True` when both takes have already been anchored to the same
+    musical t=0 (e.g. trimmed to their count-in downbeats). The cross-content FFT
+    offset is then unreliable and unnecessary, so it is skipped (off = 0).
+
     Returns (warped_follower, diagnostics)."""
     env_m = onset_env(master_y, band, sr)
     env_f = onset_env(follower_y, band, sr)
 
-    m_bp = bandpass(master_y, *band, sr) if band else master_y
-    f_bp = bandpass(follower_y, *band, sr) if band else follower_y
-    off = global_offset(m_bp, f_bp, sr)        # master t ~ follower (t - off)
+    if prealigned:
+        off = 0.0
+    else:
+        m_bp = bandpass(master_y, *band, sr) if band else master_y
+        f_bp = bandpass(follower_y, *band, sr) if band else follower_y
+        off = global_offset(m_bp, f_bp, sr)    # master t ~ follower (t - off)
     if verbose:
-        print(f"  rigid offset = {off:+.3f}s")
+        print(f"  rigid offset = {off:+.3f}s"
+              + ("  (skipped, prealigned)" if prealigned else ""))
 
     # pre-align envelopes: pad the front of whichever lags, in env frames
     shift = int(round(off * sr / HOP))

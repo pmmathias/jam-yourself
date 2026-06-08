@@ -117,14 +117,21 @@ pytest
 
 ## Status & known limits
 
-- **Tempo-warp engine: solid.** Removes ~85–90% of injected drift on real and
-  synthetic stems; warp curve is monotone; video stays locked to audio.
-- **Cross-instrument auto-alignment relies on a count-in.** Aligning a bass take
-  directly against a full master mix (different spectral content) via rigid
-  cross-correlation is fragile — a heavily drifted take can get a wrong global
-  offset. The fix is the percussive count-in (each take anchored to its own
-  musical t=0); detection is built but **not yet wired into the pipeline**, and
-  needs real count-in material to validate.
+- **Count-in detection: validated on real takes.** Recovers downbeat and tempo
+  from a percussive "1-2-3-4" even with stray string/finger onsets between the
+  counts, and resolves half/double-tempo via the global tempo estimate. On two
+  real separate takes (bass, drums) it anchored both to within ~30–50 ms of each
+  other — the count-in alone gets independent takes tight.
+- **Tempo-warp engine: solid for *same-content* alignment.** Removes ~85–90% of
+  injected drift (a drifted take vs its clean original); monotone curve; video
+  stays locked to audio.
+- **Cross-*instrument* DTW does not work**, and that's expected: a drum take and
+  a bass take play different rhythms, so their onset envelopes share only the
+  broad beat — DTW has nothing reliable to lock onto and can make alignment
+  worse. So for multi-instrument jams, rely on **count-in anchoring** (each take
+  to its own t=0 + shared tempo), not cross-instrument DTW. Per-take drift
+  removal against a shared reference (a master mix, per-instrument band) or a
+  beat-grid warp is future work.
 - Tight takes (little real drift) render fine but show no visible warp — expected.
 
 ## Roadmap

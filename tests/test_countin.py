@@ -47,6 +47,29 @@ def test_detects_downbeat_and_tempo(bpm):
     assert abs(r["bpm"] - true_bpm) < 4.0, f"bpm {r['bpm']:.1f} vs {true_bpm}"
 
 
+def test_countin_with_noise_between_counts():
+    """Real takes have stray onsets between the counts (string/finger noise) and
+    a strong every-other-beat pulse that tempts a half-tempo lock. The detector
+    must still recover the true tempo and downbeat."""
+    bpm, lead = 120, 0.6
+    y, true_db, _ = make_take(bpm=bpm, lead_s=lead, seed=3)
+    beat = 60.0 / bpm
+    sr = SR
+    clk = _click(sr, dur=0.03)
+    rng = np.random.default_rng(7)
+    # inject weaker stray onsets at random offsets within the count-in region
+    for k in range(4):
+        t = lead + k * beat + rng.uniform(0.12, 0.3)
+        i = int(t * sr)
+        y[i:i + len(clk)] += 0.5 * clk
+    y = y / (np.abs(y).max() + 1e-9)
+
+    r = ci.detect_countin(y)
+    assert abs(r["bpm"] - bpm) < 6.0, f"bpm {r['bpm']:.1f} (half/double-tempo?)"
+    assert abs(r["downbeat"] - true_db) < 0.07, \
+        f"downbeat {r['downbeat']:.3f} vs {true_db:.3f}"
+
+
 def test_trim_to_downbeat():
     y, true_db, _ = make_take(bpm=120)
     trimmed = ci.trim_to_downbeat(y, true_db)
