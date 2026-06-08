@@ -1,4 +1,5 @@
 """jamyourself -- align multi-instrument takes without a click track."""
+from .countin import detect_countin, trim_to_downbeat
 from .engine import (
     SR,
     align_follower,
@@ -18,11 +19,13 @@ __all__ = [
     "SR",
     "align_follower",
     "bandpass",
+    "detect_countin",
     "dtw_correspondence",
     "fit_warp_curve",
     "global_offset",
     "load_mono",
     "onset_env",
     "residual_lag_curve",
+    "trim_to_downbeat",
     "warp_audio",
 ]
