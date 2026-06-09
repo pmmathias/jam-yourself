@@ -141,7 +141,9 @@ JS (own FFT, spectral-flux onset, autocorrelation tempo, Ellis beat tracker,
 count-in grid search, monotone PCHIP warp, [SoundTouch](https://www.surina.net/soundtouch/)
 time-stretch via WebAssembly). Drop your count-in takes **or record them straight from the device mic / camera**
 (laptop or phone), see each track with its detected count-in (red) / downbeat
-(amber) / beat grid, then play and download the locked mix. **Your audio never
+(amber) / beat grid, then play and download the locked mix. For camera takes it
+also **renders a tiled video** (you playing each part side by side, hearing the
+locked mix) via `ffmpeg.wasm` — entirely in the browser. **Your audio/video never
 leaves the browser.** (Recording needs a secure context — works on the deployed
 HTTPS Pages URL and on `localhost`.)
 
@@ -165,7 +167,8 @@ same steps with browser libraries (validated end-to-end in headless Chromium).
 - [x] End-to-end CLI + per-take beat nudge + keep-count-in
 - [x] Multi-instrument lock via count-in anchor + beat-grid straighten
 - [x] **Browser app** (static, GitHub-Pages-ready, track UI with markers)
-- [ ] Video in the browser (ffmpeg.wasm) — tiled clips with the locked mix
+- [x] Record takes from device mic / camera (getUserMedia)
+- [x] **Video in the browser** (ffmpeg.wasm) — warp + tiled clips with the locked mix
 - [ ] Per-instrument onset detectors (drums → bass → guitar/keys)
 
 ## License

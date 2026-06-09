@@ -12,6 +12,7 @@ import { warpStretch } from "./dsp/stretch.js";
 import { decodeToMono, Transport, wavBlob } from "./audio.js";
 import { makeTrackRow, refreshTrackRow, drawWaveform } from "./ui.js";
 import { Recorder } from "./recorder.js";
+import { renderTiledVideo } from "./videorender.js";
 
 const COLORS = ["#22d3ee", "#fb7185", "#f59e0b", "#60a5fa", "#a78bfa", "#34d399"];
 
@@ -39,10 +40,16 @@ const TEMPLATE = `
       <label class="chk"><input type="checkbox" class="keep-countin" /> keep count-in</label>
       <button class="play">▶ Play mix</button>
       <button class="download">⤓ WAV</button>
+      <button class="render-vid" hidden>▶ Render video</button>
     </div>
     <div class="status"></div>
   </section>
   <section class="tracks"></section>
+  <section class="video" hidden>
+    <div class="master-head"><h2>video</h2><span class="vid-status"></span></div>
+    <video class="vid-out" controls playsinline></video>
+    <div class="vid-actions"><button class="vid-dl">⤓ video (mp4)</button></div>
+  </section>
   <section class="master">
     <div class="master-head">
       <h2>mix</h2>
@@ -85,7 +92,7 @@ export function mountApp(rootEl, opts = {}) {
     return bpms.length ? bpms[Math.floor(bpms.length / 2)] : null;
   };
 
-  async function addTrack(name, blob, { videoBlob = null } = {}) {
+  async function addTrack(name, blob, { videoBlob = null, videoExt = "webm" } = {}) {
     setStatus(`decoding ${name} …`);
     let mono;
     try { mono = await decodeToMono(blob); }
@@ -93,7 +100,7 @@ export function mountApp(rootEl, opts = {}) {
     setStatus(`analysing ${name} …`);
     const analysis = analyzeTake(mono);
     const track = { name, mono, analysis, nudge: 0, mute: false,
-                    videoBlob, hasVideo: !!videoBlob,
+                    videoBlob, videoExt, hasVideo: !!videoBlob,
                     color: COLORS[state.tracks.length % COLORS.length] };
     state.tracks.push(track);
     const row = makeTrackRow(track, {
@@ -106,7 +113,11 @@ export function mountApp(rootEl, opts = {}) {
   }
 
   async function addFiles(files) {
-    for (const file of files) await addTrack(file.name, file);
+    for (const file of files) {
+      const isVideo = (file.type || "").startsWith("video/");
+      const ext = (file.name.split(".").pop() || "").toLowerCase() || "mp4";
+      await addTrack(file.name, file, isVideo ? { videoBlob: file, videoExt: ext } : {});
+    }
     await recompute();
   }
 
@@ -116,6 +127,7 @@ export function mountApp(rootEl, opts = {}) {
     if (!usable.length) { state.mix = null; drawMaster(); setStatus("load or record takes with a count-in"); return; }
     const target = state.targetBpm || medianBpm();
     const period = 60 / target;
+    state.period = period;
     setStatus("straightening & mixing …");
     await new Promise((r) => setTimeout(r, 10));
     const stems = [];
@@ -124,12 +136,15 @@ export function mountApp(rootEl, opts = {}) {
       const anchor = state.keepCountin ? a.countin.counts[0] : a.downbeat;
       const body = trimToDownbeat(t.mono, anchor);
       const beatsRel = [0, ...a.beats.map((b) => b - anchor).filter((b) => b > 0.05)];
-      let warped = warpStretch(body, straightenCurve(beatsRel, period));
+      const warp = straightenCurve(beatsRel, period);
+      t._warpFn = warp; t._anchor = anchor;     // reused by the video render
+      let warped = warpStretch(body, warp);
       if (t.nudge) warped = nudgeShift(warped, t.nudge, period, SR);
       stems.push(warped);
     }
     state.mix = mixStems(stems);
     drawMaster();
+    $(".render-vid").hidden = !usable.some((t) => t.hasVideo);
     setStatus(`mixed ${usable.length} take(s) @ ${target.toFixed(0)} bpm — ${(state.mix.length / SR).toFixed(1)}s`);
   }
 
@@ -154,6 +169,39 @@ export function mountApp(rootEl, opts = {}) {
   };
   $(".keep-countin").onchange = (e) => { state.keepCountin = e.target.checked; recompute(); };
   $(".bpm-input").onchange = (e) => { const v = parseFloat(e.target.value); state.targetBpm = v > 0 ? v : null; recompute(); };
+
+  // render tiled video (ffmpeg.wasm) from the video takes + locked mix
+  let lastVideoUrl = null;
+  $(".render-vid").onclick = async () => {
+    if (!state.mix) return;
+    const vids = state.tracks.filter((t) => t.analysis && t.analysis.countin && !t.mute && t.hasVideo && t._warpFn);
+    if (!vids.length) return;
+    $(".video").hidden = false;
+    const vstat = $(".vid-status");
+    $(".render-vid").disabled = true;
+    vstat.textContent = "loading video engine (first run downloads ffmpeg.wasm) …";
+    try {
+      const specs = vids.map((t) => ({ blob: t.videoBlob, ext: t.videoExt || "webm",
+        downbeat: t._anchor, warpFn: t._warpFn, nudge: t.nudge }));
+      const blob = await renderTiledVideo(specs, wavBlob(state.mix, SR), {
+        period: state.period, durationSec: state.mix.length / SR,
+        onProgress: (p) => { vstat.textContent = `rendering video … ${Math.round(Math.min(1, Math.max(0, p)) * 100)}%`; },
+      });
+      if (lastVideoUrl) URL.revokeObjectURL(lastVideoUrl);
+      lastVideoUrl = URL.createObjectURL(blob);
+      $(".vid-out").src = lastVideoUrl;
+      state.videoBlob = blob;
+      vstat.textContent = `done — ${vids.length} tile(s)`;
+    } catch (e) {
+      vstat.textContent = "video render failed: " + ((e && e.message) || e);
+      console.error(e);
+    } finally { $(".render-vid").disabled = false; }
+  };
+  $(".vid-dl").onclick = () => {
+    if (!state.videoBlob) return;
+    const u = URL.createObjectURL(state.videoBlob);
+    const a = document.createElement("a"); a.href = u; a.download = "jam.mp4"; a.click(); URL.revokeObjectURL(u);
+  };
 
   // record from mic / camera
   const fmtT = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;

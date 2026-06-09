@@ -72,5 +72,12 @@
 .jy .c-beat{ background:rgba(255,255,255,.35); } .jy .c-play{ background:var(--cyan-300); }
 .jy canvas.master-wave { display:block; width:100%; height:140px; background:var(--gray-900); border:1px solid var(--gray-800); border-radius:1rem; }
 
+.jy .render-vid { background:linear-gradient(90deg,#7c3aed,#1e3a8a); border-color:transparent; }
+.jy .render-vid:hover { filter:brightness(1.15); }
+.jy .video { margin-top:24px; }
+.jy .vid-status { color:var(--gray-500); font-size:13px; }
+.jy .vid-out { display:block; width:100%; max-height:520px; background:#000; border:1px solid var(--gray-800); border-radius:1rem; margin-top:4px; }
+.jy .vid-actions { margin-top:10px; }
+
 .jy footer { color:var(--gray-500); font-size:12px; text-align:center; margin-top:36px; }
 .jy footer a { color:var(--cyan); text-decoration:underline; text-decoration-color:rgba(34,211,238,.4); text-underline-offset:3px; }

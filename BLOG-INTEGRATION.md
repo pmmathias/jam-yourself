@@ -42,11 +42,19 @@ What must remain under `/jam/`:
 
 ```
 jam/
-  js/            app.js, audio.js, ui.js, recorder.js, dsp/*.js   ← the engine (ES modules)
-  vendor/        soundtouch.js                                     ← WASM time-stretch (LGPL)
-  css/style.css                                                    ← scoped under .jy
-  fonts/         inter-*.woff2                                     ← optional (blog already has Inter)
+  js/            app.js, audio.js, ui.js, recorder.js, ffmpeg.js, videorender.js, dsp/*.js
+  vendor/        soundtouch.js                 ← WASM time-stretch (LGPL)
+  vendor/ffmpeg/ ffmpeg/ util/ core/           ← ffmpeg.wasm, ~31 MB (the video render)
+  css/style.css                                ← scoped under .jy
+  fonts/         inter-*.woff2                 ← optional (blog already has Inter)
 ```
+
+> `vendor/ffmpeg/` (~31 MB, mostly `core/ffmpeg-core.wasm`) powers the in-browser
+> tiled-video render and is **lazy-loaded** — fetched only when a visitor clicks
+> "Render video", never on page load. It's served same-origin (no CDN, no
+> COOP/COEP needed). Keep it if you want the video feature; the audio jam works
+> without it. If the repo size matters, host `/jam/vendor/ffmpeg/` on a CDN/LFS
+> and adjust the URLs in `js/ffmpeg.js` (they're built from `import.meta.url`).
 
 > The widget's CSS uses **no Tailwind classes** and is fully **scoped under `.jy`**,
 > so it can't touch the blog's global `body`/`h1`/`button` styles and you do **not**
