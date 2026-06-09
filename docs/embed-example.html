@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>jam-yourself — blog embed example</title>
+  <!-- 1. the component's (scoped) stylesheet -->
+  <link rel="stylesheet" href="css/style.css" />
+  <!-- vendored React, exactly like ki-mathias.de -->
+  <script src="vendor/react.production.min.js"></script>
+  <script src="vendor/react-dom.production.min.js"></script>
+  <style>
+    body { background:#030712; color:#9ca3af; font-family:system-ui,sans-serif; margin:0; padding:32px 16px; }
+    .post { max-width:720px; margin:0 auto; }
+    .component-wrap { margin:2.5rem auto; max-width:1000px; }
+    h1 { color:#e5e7eb; }
+  </style>
+</head>
+<body>
+  <div class="post">
+    <h1>A blog post on ki-mathias.de</h1>
+    <p>…prose… and here is the interactive jam-yourself widget, mounted exactly
+       like the site's other React components:</p>
+  </div>
+
+  <div class="component-wrap"><div id="mount-jam-yourself"></div></div>
+
+  <!-- 2. load the engine (ES module) and hand its mount fn to the wrapper -->
+  <script type="module">
+    import { mountApp } from "./js/app.js";
+    window.__jamMount = mountApp;
+    window.__jamCss = "css/style.css";
+  </script>
+  <!-- 3. the React wrapper (classic script), like *-components.js -->
+  <script src="jamyourself-components.js"></script>
+  <!-- 4. the blog's lazy-mount glue -->
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      var COMPONENTS = { "mount-jam-yourself": window.JamYourself };
+      function mountComponent(id) {
+        var el = document.getElementById(id), Comp = COMPONENTS[id];
+        if (!el || !Comp) return;
+        ReactDOM.createRoot(el).render(React.createElement(Comp));
+      }
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) { mountComponent(e.target.id); observer.unobserve(e.target); } });
+      }, { rootMargin: "200px" });
+      Object.keys(COMPONENTS).forEach(function (id) {
+        var el = document.getElementById(id); if (el) observer.observe(el);
+      });
+    });
+  </script>
+</body>
+</html>
