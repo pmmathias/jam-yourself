@@ -62,6 +62,7 @@ export function makeTrackRow(track, cb) {
       <span class="name" title="${track.name}">${track.name}</span>
       <span class="badge bpm">–</span>
       <span class="badge db">–</span>
+      <span class="badge vid" hidden>🎥</span>
       <div class="spacer"></div>
       <div class="nudge">
         <button class="nminus" title="shift one beat earlier">−</button>
@@ -82,6 +83,7 @@ export function makeTrackRow(track, cb) {
   track._row = row; track._canvas = canvas;
   track._bpmBadge = row.querySelector(".bpm");
   track._dbBadge = row.querySelector(".db");
+  track._vidBadge = row.querySelector(".vid");
   return row;
 }
 
@@ -89,6 +91,7 @@ export function refreshTrackRow(track, sr) {
   const a = track.analysis;
   track._bpmBadge.textContent = a && a.countin ? `${a.countin.bpm.toFixed(0)} bpm` : "no count-in";
   track._dbBadge.textContent = a && a.downbeat != null ? `↓ ${a.downbeat.toFixed(2)}s` : "";
+  track._vidBadge.hidden = !track.hasVideo;
   track._row.querySelector(".nval").textContent = track.nudge;
   drawWaveform(track._canvas, track.mono, sr, {
     counts: a && a.countin ? a.countin.counts : [],

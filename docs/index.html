@@ -16,9 +16,14 @@
 
   <section id="bar">
     <label id="drop" class="drop">
-      <input type="file" id="file" accept="audio/*" multiple hidden />
+      <input type="file" id="file" accept="audio/*,video/*" multiple hidden />
       <span>＋ drop / choose takes</span>
     </label>
+    <div class="recgrp">
+      <button id="rec">● Record</button>
+      <label class="chk"><input type="checkbox" id="rec-video" /> camera</label>
+      <div class="meter"><div id="rec-meter"></div></div>
+    </div>
     <div class="ctrl">
       <label>tempo
         <input type="number" id="bpm-input" placeholder="auto" min="40" max="220" />

@@ -139,9 +139,11 @@ pytest
 `docs/` is a **static, client-side web app** — the same engine ported to vanilla
 JS (own FFT, spectral-flux onset, autocorrelation tempo, Ellis beat tracker,
 count-in grid search, monotone PCHIP warp, [SoundTouch](https://www.surina.net/soundtouch/)
-time-stretch via WebAssembly). Drop your count-in takes, see each track with its
-detected count-in (red) / downbeat (green) / beat grid, then play and download
-the locked mix. **Your audio never leaves the browser.**
+time-stretch via WebAssembly). Drop your count-in takes **or record them straight from the device mic / camera**
+(laptop or phone), see each track with its detected count-in (red) / downbeat
+(amber) / beat grid, then play and download the locked mix. **Your audio never
+leaves the browser.** (Recording needs a secure context — works on the deployed
+HTTPS Pages URL and on `localhost`.)
 
 ```bash
 cd docs && python3 -m http.server 8000   # then open http://localhost:8000

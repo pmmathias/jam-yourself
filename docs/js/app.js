@@ -7,6 +7,7 @@ import { mixStems, nudge as nudgeShift } from "./dsp/mix.js";
 import { warpStretch } from "./dsp/stretch.js";
 import { decodeToMono, Transport, wavBlob } from "./audio.js";
 import { makeTrackRow, refreshTrackRow, drawWaveform } from "./ui.js";
+import { Recorder } from "./recorder.js";
 
 const COLORS = ["#6ee7ff", "#ff5a5a", "#3ddc84", "#ffd166", "#c792ea", "#f78c6c"];
 
@@ -31,27 +32,55 @@ function medianBpm() {
   return bpms[Math.floor(bpms.length / 2)];
 }
 
+async function addTrack(name, blob, { videoBlob = null } = {}) {
+  setStatus(`decoding ${name} …`);
+  let mono;
+  try { mono = await decodeToMono(blob); }
+  catch (e) { setStatus(`could not decode ${name}`); return; }
+  setStatus(`analysing ${name} …`);
+  const analysis = analyzeTake(mono);
+  const track = { name, mono, analysis, nudge: 0, mute: false,
+                  videoBlob, hasVideo: !!videoBlob,
+                  color: COLORS[state.tracks.length % COLORS.length] };
+  state.tracks.push(track);
+  const row = makeTrackRow(track, {
+    onNudge: () => recompute(),
+    onMute: () => recompute(),
+    onRemove: () => { state.tracks = state.tracks.filter((t) => t !== track); row.remove(); recompute(); },
+  });
+  tracksEl.appendChild(row);
+  refreshTrackRow(track, SR);
+}
+
 async function addFiles(files) {
-  for (const file of files) {
-    setStatus(`decoding ${file.name} …`);
-    let mono;
-    try { mono = await decodeToMono(file); }
-    catch (e) { setStatus(`could not decode ${file.name}`); continue; }
-    setStatus(`analysing ${file.name} …`);
-    const analysis = analyzeTake(mono);
-    const track = { name: file.name, mono, analysis, nudge: 0, mute: false,
-                    color: COLORS[state.tracks.length % COLORS.length] };
-    state.tracks.push(track);
-    const row = makeTrackRow(track, {
-      onNudge: () => recompute(),
-      onMute: () => recompute(),
-      onRemove: () => { state.tracks = state.tracks.filter((t) => t !== track); row.remove(); recompute(); },
-    });
-    tracksEl.appendChild(row);
-    refreshTrackRow(track, SR);
-  }
+  for (const file of files) await addTrack(file.name, file);
   await recompute();
 }
+
+// ---- record from mic / camera ----------------------------------------------
+const recorder = new Recorder();
+let recCount = 0;
+const fmtT = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const recBtn = $("#rec");
+recBtn.onclick = async () => {
+  if (state.recording) {
+    const { blob, hasVideo } = await recorder.stop();
+    state.recording = false; recBtn.classList.remove("on"); recBtn.textContent = "● Record";
+    $("#rec-meter").style.width = "0%";
+    await addTrack(`take ${++recCount} (${hasVideo ? "cam" : "mic"})`, blob,
+                   { videoBlob: hasVideo ? blob : null });
+    return;
+  }
+  const video = $("#rec-video").checked;
+  try {
+    await recorder.start({ video, onLevel: (p, t) => {
+      $("#rec-meter").style.width = `${Math.min(100, p * 140)}%`;
+      recBtn.textContent = `■ Stop ${fmtT(t)}`;
+    } });
+  } catch (e) { setStatus("microphone/camera permission denied or unavailable"); return; }
+  state.recording = true; recBtn.classList.add("on"); recBtn.textContent = "■ Stop 0:00";
+  setStatus("recording — count in 1-2-3-4, then play");
+};
 
 async function recompute() {
   $("#bpm-auto").textContent = medianBpm() ? `${medianBpm().toFixed(0)} bpm` : "–";
