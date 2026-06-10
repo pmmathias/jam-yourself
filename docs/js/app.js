@@ -262,6 +262,7 @@ export function mountApp(rootEl, opts = {}) {
     preview.srcObject = null; preview.hidden = true;
     await addTrack(`take ${++recCount} (${hasVideo ? "cam" : "mic"})`, blob,
       { videoBlob: hasVideo ? blob : null, fromRec: true, recVideo: hasVideo });
+    await recompute();   // recorded takes must re-mix too (drag&drop already does)
   }
   recBtn.onclick = () => { if (state.recording) stopRec(); else startRec($(".rec-video").checked); };
 
