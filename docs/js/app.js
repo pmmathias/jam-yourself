@@ -44,6 +44,7 @@ const TEMPLATE = `
     </div>
     <div class="status"></div>
   </section>
+  <video class="rec-preview" muted autoplay playsinline hidden></video>
   <section class="tracks"></section>
   <section class="video" hidden>
     <div class="master-head"><h2>video</h2><span class="vid-status"></span></div>
@@ -92,7 +93,8 @@ export function mountApp(rootEl, opts = {}) {
     return bpms.length ? bpms[Math.floor(bpms.length / 2)] : null;
   };
 
-  async function addTrack(name, blob, { videoBlob = null, videoExt = "webm" } = {}) {
+  async function addTrack(name, blob, { videoBlob = null, videoExt = "webm",
+                                        fromRec = false, recVideo = false } = {}) {
     setStatus(`decoding ${name} …`);
     let mono;
     try { mono = await decodeToMono(blob); }
@@ -100,13 +102,18 @@ export function mountApp(rootEl, opts = {}) {
     setStatus(`analysing ${name} …`);
     const analysis = analyzeTake(mono);
     const track = { name, mono, analysis, nudge: 0, mute: false,
-                    videoBlob, videoExt, hasVideo: !!videoBlob,
+                    videoBlob, videoExt, hasVideo: !!videoBlob, fromRec, recVideo,
                     color: COLORS[state.tracks.length % COLORS.length] };
     state.tracks.push(track);
     const row = makeTrackRow(track, {
       onNudge: () => recompute(),
       onMute: () => recompute(),
       onRemove: () => { state.tracks = state.tracks.filter((t) => t !== track); row.remove(); recompute(); },
+      onRetake: async () => {           // discard this take and record a fresh one
+        state.tracks = state.tracks.filter((t) => t !== track); row.remove();
+        await recompute();
+        await startRec(track.recVideo);
+      },
     });
     tracksEl.appendChild(row);
     refreshTrackRow(track, SR);
@@ -203,26 +210,37 @@ export function mountApp(rootEl, opts = {}) {
     const a = document.createElement("a"); a.href = u; a.download = "jam.mp4"; a.click(); URL.revokeObjectURL(u);
   };
 
-  // record from mic / camera
+  // record from mic / camera (with live camera preview + retake)
   const fmtT = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-  recBtn.onclick = async () => {
-    if (state.recording) {
-      const { blob, hasVideo } = await recorder.stop();
-      state.recording = false; recBtn.classList.remove("on"); recBtn.textContent = "● Record";
-      $(".rec-meter").style.width = "0%";
-      await addTrack(`take ${++recCount} (${hasVideo ? "cam" : "mic"})`, blob, { videoBlob: hasVideo ? blob : null });
-      return;
-    }
-    const video = $(".rec-video").checked;
+  const preview = $(".rec-preview");
+
+  async function startRec(video) {
+    if (state.recording) return false;
     try {
       await recorder.start({ video, onLevel: (p, t) => {
         $(".rec-meter").style.width = `${Math.min(100, p * 140)}%`;
         recBtn.textContent = `■ Stop ${fmtT(t)}`;
       } });
-    } catch (e) { setStatus("microphone/camera permission denied or unavailable"); return; }
-    state.recording = true; recBtn.classList.add("on"); recBtn.textContent = "■ Stop 0:00";
+    } catch (e) { setStatus("microphone/camera permission denied or unavailable"); return false; }
+    state.recording = true; state.recVideo = video;
+    recBtn.classList.add("on"); recBtn.textContent = "■ Stop 0:00";
+    if (video && recorder.stream) {
+      preview.srcObject = recorder.stream; preview.hidden = false;
+      try { await preview.play(); } catch (e) {}
+    }
     setStatus("recording — count in 1-2-3-4, then play");
-  };
+    return true;
+  }
+  async function stopRec() {
+    if (!state.recording) return;
+    const { blob, hasVideo } = await recorder.stop();
+    state.recording = false; recBtn.classList.remove("on"); recBtn.textContent = "● Record";
+    $(".rec-meter").style.width = "0%";
+    preview.srcObject = null; preview.hidden = true;
+    await addTrack(`take ${++recCount} (${hasVideo ? "cam" : "mic"})`, blob,
+      { videoBlob: hasVideo ? blob : null, fromRec: true, recVideo: hasVideo });
+  }
+  recBtn.onclick = () => { if (state.recording) stopRec(); else startRec($(".rec-video").checked); };
 
   // drag & drop + file input
   const drop = $(".drop");

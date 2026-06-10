@@ -69,6 +69,7 @@ export function makeTrackRow(track, cb) {
         <span class="nval">0</span><small>beat</small>
         <button class="nplus" title="shift one beat later">+</button>
       </div>
+      <button class="retake" title="discard & record again" hidden>↻ again</button>
       <button class="mute" title="mute">M</button>
       <button class="remove" title="remove">✕</button>
     </div>
@@ -79,11 +80,13 @@ export function makeTrackRow(track, cb) {
   row.querySelector(".nplus").onclick = () => { track.nudge++; nval.textContent = track.nudge; cb.onNudge(); };
   const muteBtn = row.querySelector(".mute");
   muteBtn.onclick = () => { track.mute = !track.mute; muteBtn.classList.toggle("on", track.mute); cb.onMute(); };
+  row.querySelector(".retake").onclick = () => cb.onRetake && cb.onRetake();
   row.querySelector(".remove").onclick = () => cb.onRemove();
   track._row = row; track._canvas = canvas;
   track._bpmBadge = row.querySelector(".bpm");
   track._dbBadge = row.querySelector(".db");
   track._vidBadge = row.querySelector(".vid");
+  track._retakeBtn = row.querySelector(".retake");
   return row;
 }
 
@@ -92,6 +95,7 @@ export function refreshTrackRow(track, sr) {
   track._bpmBadge.textContent = a && a.countin ? `${a.countin.bpm.toFixed(0)} bpm` : "no count-in";
   track._dbBadge.textContent = a && a.downbeat != null ? `↓ ${a.downbeat.toFixed(2)}s` : "";
   track._vidBadge.hidden = !track.hasVideo;
+  track._retakeBtn.hidden = !track.fromRec;
   track._row.querySelector(".nval").textContent = track.nudge;
   drawWaveform(track._canvas, track.mono, sr, {
     counts: a && a.countin ? a.countin.counts : [],

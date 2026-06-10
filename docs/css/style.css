@@ -47,6 +47,11 @@
 @keyframes jy-pulse { 0%,100%{ box-shadow:0 0 0 0 rgba(251,113,133,.45);} 50%{ box-shadow:0 0 0 7px rgba(251,113,133,0);} }
 .jy .meter { width:70px; height:8px; border-radius:999px; background:var(--gray-800); overflow:hidden; }
 .jy .rec-meter { width:0%; height:100%; background:linear-gradient(90deg,var(--cyan),var(--amber)); transition:width .05s linear; }
+.jy .rec-preview:not([hidden]) { display:block; width:100%; max-width:440px; margin:0 auto 10px;
+  aspect-ratio:4/3; object-fit:cover; background:#000; border:1px solid var(--rose); border-radius:1rem;
+  transform:scaleX(-1); box-shadow:0 0 0 3px rgba(251,113,133,.18); }
+.jy .retake { color:var(--amber); border-color:var(--gray-700); padding:4px 10px; }
+.jy .retake:hover { border-color:var(--amber); color:#fff; }
 
 .jy .tracks { display:flex; flex-direction:column; gap:14px; }
 .jy .track { background:var(--gray-900); border:1px solid var(--gray-800); border-radius:1rem; overflow:hidden; }
