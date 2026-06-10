@@ -18,11 +18,12 @@ export function drawWaveform(canvas, mono, sr, markers = {}) {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, w, h);
 
-  const dur = mono.length / sr;
+  const monoDur = mono.length / sr;
+  const dur = markers.spanDur || monoDur;     // shared time span across tracks
   const tx = (t) => (t / dur) * w;
   const mid = h / 2;
 
-  // beat grid
+  // beat grid (drawn across the whole span)
   if (markers.beats) {
     ctx.strokeStyle = COL.beat; ctx.lineWidth = 1;
     for (const b of markers.beats) {
@@ -30,11 +31,12 @@ export function drawWaveform(canvas, mono, sr, markers = {}) {
     }
   }
 
-  // waveform peaks (one min/max bar per pixel column)
-  const spp = mono.length / w;
+  // waveform peaks (occupies only its own duration within the span)
+  const waveW = Math.max(1, Math.round(tx(monoDur)));
+  const spp = mono.length / waveW;
   ctx.strokeStyle = COL.wave; ctx.lineWidth = 1; ctx.globalAlpha = 0.9;
   ctx.beginPath();
-  for (let x = 0; x < w; x++) {
+  for (let x = 0; x < waveW; x++) {
     let min = 1, max = -1;
     const s = Math.floor(x * spp), e = Math.min(mono.length, Math.floor((x + 1) * spp));
     for (let i = s; i < e; i++) { const v = mono[i]; if (v < min) min = v; if (v > max) max = v; }
@@ -90,17 +92,30 @@ export function makeTrackRow(track, cb) {
   return row;
 }
 
-export function refreshTrackRow(track, sr) {
+export function refreshTrackRow(track, sr, opts = {}) {
   const a = track.analysis;
   track._bpmBadge.textContent = a && a.countin ? `${a.countin.bpm.toFixed(0)} bpm` : "no count-in";
   track._dbBadge.textContent = a && a.downbeat != null ? `↓ ${a.downbeat.toFixed(2)}s` : "";
   track._vidBadge.hidden = !track.hasVideo;
   track._retakeBtn.hidden = !track.fromRec;
   track._row.querySelector(".nval").textContent = track.nudge;
-  drawWaveform(track._canvas, track.mono, sr, {
-    counts: a && a.countin ? a.countin.counts : [],
-    downbeat: a ? a.downbeat : null,
-    beats: a ? a.beats : [],
-    playheadT: null,
-  });
+
+  if (opts.view === "aligned" && track._aligned) {
+    // warped audio against the SHARED common-tempo grid: downbeats line up,
+    // onsets should sit on the grid lines -> visual proof the warp happened.
+    const period = opts.period, span = opts.spanDur || track._aligned.length / sr;
+    const grid = [];
+    for (let t = 0; t <= span + 1e-6; t += period) grid.push(t);
+    const base = opts.keepCountin ? 4 : 0;     // downbeat is 4 beats after count 1
+    const downbeat = (base + track.nudge) * period;
+    const counts = opts.keepCountin ? [0, 1, 2, 3].map((k) => (k + track.nudge) * period) : [];
+    drawWaveform(track._canvas, track._aligned, sr, { spanDur: span, beats: grid, downbeat, counts });
+  } else {
+    drawWaveform(track._canvas, track.mono, sr, {
+      spanDur: opts.spanDur,
+      counts: a && a.countin ? a.countin.counts : [],
+      downbeat: a ? a.downbeat : null,
+      beats: a ? a.beats : [],
+    });
+  }
 }

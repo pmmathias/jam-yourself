@@ -38,6 +38,7 @@ const TEMPLATE = `
         <span class="hint">auto: <b class="bpm-auto">–</b></span>
       </label>
       <label class="chk"><input type="checkbox" class="keep-countin" /> keep count-in</label>
+      <label class="chk"><input type="checkbox" class="view-aligned" /> aligned view</label>
       <button class="play">▶ Play mix</button>
       <button class="download">⤓ WAV</button>
       <button class="render-vid" hidden>▶ Render video</button>
@@ -139,20 +140,41 @@ export function mountApp(rootEl, opts = {}) {
     await new Promise((r) => setTimeout(r, 10));
     const stems = [];
     for (const t of usable) {
-      const a = t.analysis;
-      const anchor = state.keepCountin ? a.countin.counts[0] : a.downbeat;
-      const body = trimToDownbeat(t.mono, anchor);
-      const beatsRel = [0, ...a.beats.map((b) => b - anchor).filter((b) => b > 0.05)];
+      const a = t.analysis, ci = a.countin;
+      // beat list (absolute) the warp grids onto. When keeping the count-in we
+      // must include the FOUR count beats (they're not in a.beats, which starts
+      // at the downbeat) — otherwise the count-in region gets mis-warped.
+      const anchor = state.keepCountin ? ci.counts[0] : a.downbeat;
+      const absBeats = state.keepCountin
+        ? [...ci.counts, ci.downbeat, ...a.beats]
+        : [a.downbeat, ...a.beats];
+      const rel = absBeats.map((b) => b - anchor).filter((b) => b >= -1e-6).sort((x, y) => x - y);
+      const beatsRel = [];
+      for (const v of rel) if (!beatsRel.length || v > beatsRel[beatsRel.length - 1] + 0.05) beatsRel.push(Math.max(0, v));
+      if (!beatsRel.length || beatsRel[0] > 1e-3) beatsRel.unshift(0);
+
       const warp = straightenCurve(beatsRel, period);
       t._warpFn = warp; t._anchor = anchor;     // reused by the video render
+      const body = trimToDownbeat(t.mono, anchor);
       let warped = warpStretch(body, warp);
       if (t.nudge) warped = nudgeShift(warped, t.nudge, period, SR);
+      t._aligned = warped;                      // shown in "aligned view"
       stems.push(warped);
     }
     state.mix = mixStems(stems);
     drawMaster();
     $(".render-vid").hidden = !usable.some((t) => t.hasVideo);
+    refreshAll();
     setStatus(`mixed ${usable.length} take(s) @ ${target.toFixed(0)} bpm — ${(state.mix.length / SR).toFixed(1)}s`);
+  }
+
+  function refreshAll() {
+    const view = $(".view-aligned").checked ? "aligned" : "raw";
+    const durs = state.tracks.map((t) => (view === "aligned" && t._aligned ? t._aligned.length : t.mono.length) / SR);
+    const span = durs.length ? Math.max(...durs) : 0;
+    state.tracks.forEach((t) => refreshTrackRow(t, SR, {
+      view, spanDur: span, period: state.period, keepCountin: state.keepCountin,
+    }));
   }
 
   function drawMaster(playheadT = null) {
@@ -175,6 +197,7 @@ export function mountApp(rootEl, opts = {}) {
     URL.revokeObjectURL(url);
   };
   $(".keep-countin").onchange = (e) => { state.keepCountin = e.target.checked; recompute(); };
+  $(".view-aligned").onchange = () => refreshAll();
   $(".bpm-input").onchange = (e) => { const v = parseFloat(e.target.value); state.targetBpm = v > 0 ? v : null; recompute(); };
 
   // render tiled video (ffmpeg.wasm) from the video takes + locked mix
@@ -249,7 +272,7 @@ export function mountApp(rootEl, opts = {}) {
   drop.addEventListener("drop", (e) => { if (e.dataTransfer.files.length) addFiles([...e.dataTransfer.files]); });
   $(".file").addEventListener("change", (e) => { if (e.target.files.length) addFiles([...e.target.files]); });
 
-  const onResize = () => { state.tracks.forEach((t) => refreshTrackRow(t, SR)); drawMaster(); };
+  const onResize = () => { refreshAll(); drawMaster(); };
   window.addEventListener("resize", onResize);
   setStatus("drop or record your count-in takes to start");
 
