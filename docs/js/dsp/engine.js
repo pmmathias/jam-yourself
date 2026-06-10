@@ -13,12 +13,13 @@ export { warpCurveFromBeats, Pchip } from "./warp.js";
 export { mixStems, nudge } from "./mix.js";
 export { trackBeats } from "./beats.js";
 
-// Analyse a full take for display + processing.
-export function analyzeTake(y, sr = SR) {
+// Analyse a full take for display + processing. `fromTime` ignores onsets before
+// it when detecting the count-in (manual override past leading noise).
+export function analyzeTake(y, sr = SR, { fromTime = 0 } = {}) {
   const env = onsetEnvelope(y, sr);
   const onsetTimes = framesToTimes(pickOnsets(env), sr);
   let countin = null;
-  try { countin = detectCountin(y, { sr }); } catch (e) { countin = null; }
+  try { countin = detectCountin(y, { sr, fromTime }); } catch (e) { countin = null; }
 
   let beats = [], bpm = null, downbeat = null;
   if (countin) {

@@ -17,24 +17,32 @@ function linfit(xs, ys) {
 
 export function detectCountin(y, {
   sr = SR, hop = HOP, searchS = 10.0, nCounts = 4, tol = 0.08, t0Window = null,
+  fromTime = 0,
 } = {}) {
   if (t0Window == null) t0Window = searchS;
   const head = y.subarray ? y.subarray(0, Math.floor(searchS * sr)) : y.slice(0, Math.floor(searchS * sr));
   const env = onsetEnvelope(head, sr, hop);
-  const frames = pickOnsets(env);
+  let frames = pickOnsets(env);
+  // fromTime lets the user point past leading noise/fumbling ("the count-in is
+  // here") — onsets before it are ignored entirely.
+  if (fromTime > 0) frames = frames.filter((f) => (f * hop) / sr >= fromTime - 1e-9);
   if (frames.length < nCounts) throw new Error(`only ${frames.length} onsets; need ${nCounts}`);
   const times = frames.map((f) => (f * hop) / sr);
 
   const coverage = (t0, b) => {
     let hit = 0;
     for (let g = t0; g < searchS; g += b) {
-      let best = Infinity;
-      for (const t of times) best = Math.min(best, Math.abs(t - g));
-      if (best <= tol) hit++;
+      let bd = Infinity;
+      for (const t of times) bd = Math.min(bd, Math.abs(t - g));
+      if (bd <= tol) hit++;
     }
     return hit;
   };
 
+  // Earliest evenly-spaced 4-grid at a sane counting tempo wins (coverage then
+  // tightness break ties). Leading noise is skipped by pointing `fromTime` past
+  // it (manual override in the UI), since separating arbitrary noise from a real
+  // count-in by onset statistics alone isn't reliable.
   let best = null;
   for (const t0 of times) {
     if (t0 > t0Window) break;
@@ -54,13 +62,12 @@ export function detectCountin(y, {
         if (bd > tol) { ok = false; break; }
         idx.push(bj); err += bd;
       }
-      if (ok) {
-        const cov = coverage(t0, b);
-        if (!t0best || cov > t0best.cov || (cov === t0best.cov && err < t0best.err))
-          t0best = { idx, b, err, cov };
-      }
+      if (!ok) continue;
+      const cov = coverage(t0, b);
+      if (!t0best || cov > t0best.cov || (cov === t0best.cov && err < t0best.err))
+        t0best = { idx, b, err, cov };
     }
-    if (t0best) { best = t0best; break; } // earliest valid t0 wins
+    if (t0best) { best = t0best; break; }   // earliest valid t0
   }
   if (!best) throw new Error("no evenly-spaced count-in found");
 

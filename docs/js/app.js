@@ -110,8 +110,8 @@ export function mountApp(rootEl, opts = {}) {
     setStatus(`analysing ${name} …`);
     const analysis = analyzeTake(mono);
     const track = { name, mono, analysis, nudge: 0, mute: false, octave: 1, pairedWith: null,
-                    id: ++trackId, videoBlob, videoExt, hasVideo: !!videoBlob, fromRec, recVideo,
-                    color: COLORS[state.tracks.length % COLORS.length] };
+                    searchStart: 0, id: ++trackId, videoBlob, videoExt, hasVideo: !!videoBlob,
+                    fromRec, recVideo, color: COLORS[state.tracks.length % COLORS.length] };
     state.tracks.push(track);
     const row = makeTrackRow(track, {
       onNudge: () => recompute(),
@@ -123,6 +123,12 @@ export function mountApp(rootEl, opts = {}) {
         state.tracks = state.tracks.filter((t) => t !== track); row.remove();
         await recompute();
         await startRec(track.recVideo);
+      },
+      onSetStart: (t, view) => {        // click the waveform: "count-in starts here"
+        if (view && view !== "raw") return;
+        track.searchStart = t < 0.15 ? 0 : t;   // click far left to reset
+        track.analysis = analyzeTake(track.mono, SR, { fromTime: track.searchStart });
+        recompute();
       },
     });
     tracksEl.appendChild(row);

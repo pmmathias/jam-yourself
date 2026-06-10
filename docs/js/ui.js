@@ -50,6 +50,9 @@ export function drawWaveform(canvas, mono, sr, markers = {}) {
     const x = tx(t); ctx.strokeStyle = color; ctx.lineWidth = lw;
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
   };
+  if (markers.searchStart) {              // manual "count-in starts here" marker
+    ctx.setLineDash([5, 4]); vline(markers.searchStart, "#e879f9", 2); ctx.setLineDash([]);
+  }
   if (markers.counts) markers.counts.forEach((t) => vline(t, COL.count, 2));
   if (markers.downbeat != null) vline(markers.downbeat, COL.downbeat, 3);
   if (markers.playheadT != null && markers.playheadT > 0) vline(markers.playheadT, COL.playhead, 2);
@@ -83,6 +86,13 @@ export function makeTrackRow(track, cb) {
     </div>
     <canvas class="wave"></canvas>`;
   const canvas = row.querySelector(".wave");
+  canvas.style.cursor = "crosshair";
+  canvas.title = "click to mark where the count-in starts (skip leading noise); click far left to reset";
+  canvas.onclick = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const t = (e.clientX - rect.left) / rect.width * (track._drawSpan || 0);
+    cb.onSetStart && cb.onSetStart(t, track._drawView);
+  };
   const nval = row.querySelector(".nval");
   row.querySelector(".nminus").onclick = () => { track.nudge--; nval.textContent = track.nudge; cb.onNudge(); };
   row.querySelector(".nplus").onclick = () => { track.nudge++; nval.textContent = track.nudge; cb.onNudge(); };
@@ -116,6 +126,9 @@ export function refreshTrackRow(track, sr, opts = {}) {
   track._octVal.textContent = oct === 1 ? "" : (oct > 1 ? `×${oct}` : `÷${Math.round(1 / oct)}`);
   track._row.querySelector(".nval").textContent = track.nudge;
 
+  track._drawView = opts.view || "raw";
+  track._drawSpan = opts.spanDur || (track.mono.length / sr);
+
   if (opts.view === "aligned" && track._aligned) {
     // warped audio against the SHARED common-tempo grid: downbeats line up,
     // onsets should sit on the grid lines -> visual proof the warp happened.
@@ -132,6 +145,7 @@ export function refreshTrackRow(track, sr, opts = {}) {
       counts: a && a.countin ? a.countin.counts : [],
       downbeat: a ? a.downbeat : null,
       beats: a ? a.beats : [],
+      searchStart: track.searchStart || 0,
     });
   }
 }
