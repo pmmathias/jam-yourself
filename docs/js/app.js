@@ -5,7 +5,7 @@
 // the `.jy` class), so it drops into any page (e.g. a QuantenBlog component
 // mount point) without touching global styles. Returns a destroy() function.
 import { SR } from "./dsp/constants.js";
-import { analyzeTake, straightenCurve } from "./dsp/engine.js";
+import { analyzeTake, straightenCurve, trackBeats } from "./dsp/engine.js";
 import { trimToDownbeat } from "./dsp/countin.js";
 import { mixStems, nudge as nudgeShift } from "./dsp/mix.js";
 import { warpStretch } from "./dsp/stretch.js";
@@ -87,10 +87,17 @@ export function mountApp(rootEl, opts = {}) {
                   keepCountin: false, targetBpm: null, recording: false };
   const recorder = new Recorder();
   let recCount = 0;
+  let trackId = 0;
+
+  // octave-corrected count-in tempo of a track (×2/÷2 buttons set t.octave)
+  const trackBpm = (t) => t.analysis.countin.bpm * (t.octave || 1);
+  // tracks whose SOUND goes into the mix: have a count-in, not muted, and not a
+  // video that's paired to another take (those contribute only their picture).
+  const soundTracksOf = () => state.tracks.filter(
+    (t) => t.analysis && t.analysis.countin && !t.mute && !t.pairedWith);
 
   const medianBpm = () => {
-    const bpms = state.tracks.filter((t) => t.analysis && t.analysis.countin)
-      .map((t) => t.analysis.countin.bpm).sort((a, b) => a - b);
+    const bpms = soundTracksOf().map(trackBpm).sort((a, b) => a - b);
     return bpms.length ? bpms[Math.floor(bpms.length / 2)] : null;
   };
 
@@ -102,13 +109,15 @@ export function mountApp(rootEl, opts = {}) {
     catch (e) { setStatus(`could not decode ${name}`); return; }
     setStatus(`analysing ${name} …`);
     const analysis = analyzeTake(mono);
-    const track = { name, mono, analysis, nudge: 0, mute: false,
-                    videoBlob, videoExt, hasVideo: !!videoBlob, fromRec, recVideo,
+    const track = { name, mono, analysis, nudge: 0, mute: false, octave: 1, pairedWith: null,
+                    id: ++trackId, videoBlob, videoExt, hasVideo: !!videoBlob, fromRec, recVideo,
                     color: COLORS[state.tracks.length % COLORS.length] };
     state.tracks.push(track);
     const row = makeTrackRow(track, {
       onNudge: () => recompute(),
       onMute: () => recompute(),
+      onOctave: (f) => { track.octave = Math.min(4, Math.max(0.25, (track.octave || 1) * f)); recompute(); },
+      onPair: (val) => { track.pairedWith = val ? Number(val) : null; recompute(); },
       onRemove: () => { state.tracks = state.tracks.filter((t) => t !== track); row.remove(); recompute(); },
       onRetake: async () => {           // discard this take and record a fresh one
         state.tracks = state.tracks.filter((t) => t !== track); row.remove();
@@ -129,49 +138,82 @@ export function mountApp(rootEl, opts = {}) {
     await recompute();
   }
 
+  // build the warp curve for a track straightened onto `period`. Beats are
+  // re-tracked at the octave-corrected tempo when ×2/÷2 is used.
+  function trackWarp(t, period) {
+    const a = t.analysis, ci = a.countin;
+    const anchor = state.keepCountin ? ci.counts[0] : a.downbeat;
+    let beats = a.beats;
+    if ((t.octave || 1) !== 1)
+      beats = trackBeats(trimToDownbeat(t.mono, a.downbeat), trackBpm(t)).map((x) => x + a.downbeat);
+    // include the four count beats when keeping the count-in (a.beats starts at
+    // the downbeat), else the count-in region would get mis-warped.
+    const absBeats = state.keepCountin ? [...ci.counts, ci.downbeat, ...beats] : [a.downbeat, ...beats];
+    const rel = absBeats.map((b) => b - anchor).filter((b) => b >= -1e-6).sort((x, y) => x - y);
+    const beatsRel = [];
+    for (const v of rel) if (!beatsRel.length || v > beatsRel[beatsRel.length - 1] + 0.05) beatsRel.push(Math.max(0, v));
+    if (!beatsRel.length || beatsRel[0] > 1e-3) beatsRel.unshift(0);
+    return { warp: straightenCurve(beatsRel, period), anchor };
+  }
+
+  function alignedAudio(t, warp, anchor, period) {
+    let warped = warpStretch(trimToDownbeat(t.mono, anchor), warp);
+    if (t.nudge) warped = nudgeShift(warped, t.nudge, period, SR);
+    return warped;
+  }
+
   async function recompute() {
+    const sound = soundTracksOf();
     $(".bpm-auto").textContent = medianBpm() ? `${medianBpm().toFixed(0)} bpm` : "–";
-    const usable = state.tracks.filter((t) => t.analysis && t.analysis.countin && !t.mute);
-    if (!usable.length) { state.mix = null; drawMaster(); setStatus("load or record takes with a count-in"); return; }
+    if (!sound.length) { state.mix = null; drawMaster(); $(".render-vid").hidden = true; refreshAll(); setStatus("load or record takes with a count-in"); return; }
     const target = state.targetBpm || medianBpm();
     const period = 60 / target;
     state.period = period;
     setStatus("straightening & mixing …");
     await new Promise((r) => setTimeout(r, 10));
-    const stems = [];
-    for (const t of usable) {
-      const a = t.analysis, ci = a.countin;
-      // beat list (absolute) the warp grids onto. When keeping the count-in we
-      // must include the FOUR count beats (they're not in a.beats, which starts
-      // at the downbeat) — otherwise the count-in region gets mis-warped.
-      const anchor = state.keepCountin ? ci.counts[0] : a.downbeat;
-      const absBeats = state.keepCountin
-        ? [...ci.counts, ci.downbeat, ...a.beats]
-        : [a.downbeat, ...a.beats];
-      const rel = absBeats.map((b) => b - anchor).filter((b) => b >= -1e-6).sort((x, y) => x - y);
-      const beatsRel = [];
-      for (const v of rel) if (!beatsRel.length || v > beatsRel[beatsRel.length - 1] + 0.05) beatsRel.push(Math.max(0, v));
-      if (!beatsRel.length || beatsRel[0] > 1e-3) beatsRel.unshift(0);
 
-      const warp = straightenCurve(beatsRel, period);
-      t._warpFn = warp; t._anchor = anchor;     // reused by the video render
-      const body = trimToDownbeat(t.mono, anchor);
-      let warped = warpStretch(body, warp);
-      if (t.nudge) warped = nudgeShift(warped, t.nudge, period, SR);
-      t._aligned = warped;                      // shown in "aligned view"
-      stems.push(warped);
+    // phase 1 — straighten + mix the sound tracks
+    const stems = [];
+    for (const t of sound) {
+      const { warp, anchor } = trackWarp(t, period);
+      t._warpFn = warp; t._anchor = anchor;
+      t._aligned = alignedAudio(t, warp, anchor, period);
+      stems.push(t._aligned);
     }
     state.mix = mixStems(stems);
+
+    // phase 2 — a paired video take borrows its sound take's EXACT warp curve
+    // (anchored at its own count-in), so its picture stays in sync with that
+    // take's sound even though it sounds different and isn't in the mix.
+    for (const t of state.tracks) {
+      if (!t.pairedWith || !t.hasVideo || !(t.analysis && t.analysis.countin)) continue;
+      const partner = state.tracks.find((p) => p.id === t.pairedWith);
+      if (partner && partner._warpFn) {
+        t._warpFn = partner._warpFn; t._anchor = t.analysis.downbeat;
+        t._aligned = alignedAudio(t, partner._warpFn, t._anchor, period);
+      } else { t._warpFn = null; t._aligned = null; }
+    }
+
     drawMaster();
-    $(".render-vid").hidden = !usable.some((t) => t.hasVideo);
+    $(".render-vid").hidden = !state.tracks.some((t) => t.hasVideo && t._warpFn && !t.mute);
     refreshAll();
-    setStatus(`mixed ${usable.length} take(s) @ ${target.toFixed(0)} bpm — ${(state.mix.length / SR).toFixed(1)}s`);
+    setStatus(`mixed ${sound.length} take(s) @ ${target.toFixed(0)} bpm — ${(state.mix.length / SR).toFixed(1)}s`);
   }
 
   function refreshAll() {
     const view = $(".view-aligned").checked ? "aligned" : "raw";
     const durs = state.tracks.map((t) => (view === "aligned" && t._aligned ? t._aligned.length : t.mono.length) / SR);
     const span = durs.length ? Math.max(...durs) : 0;
+    // populate the "pair this video with a sound take" selects
+    state.tracks.forEach((t) => {
+      if (!t.hasVideo || !t._pairSelect) return;
+      t._pairSelect.innerHTML = "";
+      const add = (v, txt) => { const o = document.createElement("option"); o.value = v; o.textContent = txt; t._pairSelect.appendChild(o); };
+      add("", "🎥+🔊 own sound");
+      for (const o of state.tracks)
+        if (o !== t && !o.hasVideo && o.analysis && o.analysis.countin) add(String(o.id), `🎥→ ${o.name}`);
+      t._pairSelect.value = t.pairedWith ? String(t.pairedWith) : "";
+    });
     state.tracks.forEach((t) => refreshTrackRow(t, SR, {
       view, spanDur: span, period: state.period, keepCountin: state.keepCountin,
     }));

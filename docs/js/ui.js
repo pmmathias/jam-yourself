@@ -65,7 +65,13 @@ export function makeTrackRow(track, cb) {
       <span class="badge bpm">–</span>
       <span class="badge db">–</span>
       <span class="badge vid" hidden>🎥</span>
+      <select class="pair" title="use this video for which take's sound?" hidden></select>
       <div class="spacer"></div>
+      <div class="oct">
+        <button class="oct-half" title="half tempo (fix octave)">÷2</button>
+        <span class="oct-val" hidden></span>
+        <button class="oct-double" title="double tempo (fix octave)">×2</button>
+      </div>
       <div class="nudge">
         <button class="nminus" title="shift one beat earlier">−</button>
         <span class="nval">0</span><small>beat</small>
@@ -84,11 +90,17 @@ export function makeTrackRow(track, cb) {
   muteBtn.onclick = () => { track.mute = !track.mute; muteBtn.classList.toggle("on", track.mute); cb.onMute(); };
   row.querySelector(".retake").onclick = () => cb.onRetake && cb.onRetake();
   row.querySelector(".remove").onclick = () => cb.onRemove();
+  row.querySelector(".oct-half").onclick = () => cb.onOctave && cb.onOctave(0.5);
+  row.querySelector(".oct-double").onclick = () => cb.onOctave && cb.onOctave(2);
+  const pairSel = row.querySelector(".pair");
+  pairSel.onchange = () => cb.onPair && cb.onPair(pairSel.value);
   track._row = row; track._canvas = canvas;
   track._bpmBadge = row.querySelector(".bpm");
   track._dbBadge = row.querySelector(".db");
   track._vidBadge = row.querySelector(".vid");
   track._retakeBtn = row.querySelector(".retake");
+  track._pairSelect = pairSel;
+  track._octVal = row.querySelector(".oct-val");
   return row;
 }
 
@@ -98,6 +110,10 @@ export function refreshTrackRow(track, sr, opts = {}) {
   track._dbBadge.textContent = a && a.downbeat != null ? `↓ ${a.downbeat.toFixed(2)}s` : "";
   track._vidBadge.hidden = !track.hasVideo;
   track._retakeBtn.hidden = !track.fromRec;
+  track._pairSelect.hidden = !track.hasVideo;
+  const oct = track.octave || 1;
+  track._octVal.hidden = oct === 1;
+  track._octVal.textContent = oct === 1 ? "" : (oct > 1 ? `×${oct}` : `÷${Math.round(1 / oct)}`);
   track._row.querySelector(".nval").textContent = track.nudge;
 
   if (opts.view === "aligned" && track._aligned) {
