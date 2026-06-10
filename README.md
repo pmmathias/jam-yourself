@@ -136,6 +136,10 @@ pytest
 
 ## Web app (browser, no install)
 
+**▶ Live: https://pmmathias.github.io/jam-yourself/** — open it on your phone
+(HTTPS, so mic/camera recording works) or any browser; nothing to install.
+
+
 `docs/` is a **static, client-side web app** — the same engine ported to vanilla
 JS (own FFT, spectral-flux onset, autocorrelation tempo, Ellis beat tracker,
 count-in grid search, monotone PCHIP warp, [SoundTouch](https://www.surina.net/soundtouch/)
