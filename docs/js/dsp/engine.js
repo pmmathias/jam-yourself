@@ -34,6 +34,6 @@ export function analyzeTake(y, sr = SR, { fromTime = 0 } = {}) {
 }
 
 // Warp curve for one take: maps take-time (from downbeat) -> steady grid-time.
-export function straightenCurve(beatsFromDownbeat, targetPeriod) {
-  return warpCurveFromBeats(beatsFromDownbeat, targetPeriod);
+export function straightenCurve(beatsFromDownbeat, targetPeriod, expectedPeriod) {
+  return warpCurveFromBeats(beatsFromDownbeat, targetPeriod, expectedPeriod);
 }

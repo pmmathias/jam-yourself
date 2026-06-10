@@ -55,14 +55,29 @@ export class Pchip {
   }
 }
 
-// Warp curve f: take-time -> grid-time, mapping each tracked beat onto a steady
-// grid of `targetPeriod` seconds. beats[] in seconds (beat 0 at/near t=0).
-export function warpCurveFromBeats(beats, targetPeriod) {
-  let b = beats.slice();
-  if (b.length === 0 || b[0] > 0.25) b = [0, ...b];
-  // strictly increasing
-  const xs = [b[0]];
-  for (let i = 1; i < b.length; i++) if (b[i] > xs[xs.length - 1] + 1e-3) xs.push(b[i]);
-  const ys = xs.map((_, k) => k * targetPeriod);
+// Warp curve f: take-time -> grid-time. Each beat is SNAPPED to its nearest grid
+// slot k = round(beat / expectedPeriod) rather than numbered consecutively, so a
+// spurious near-downbeat beat (or an octave/extra/missed beat) lands on the right
+// slot instead of shoving everything one beat over (which inserts a phantom pause
+// at the start). expectedPeriod is the take's own beat period (count-in tempo);
+// targetPeriod is the common grid period. beats[] in seconds, relative to the
+// downbeat (0).
+export function warpCurveFromBeats(beats, targetPeriod, expectedPeriod = targetPeriod) {
+  const byK = new Map();                          // grid slot -> take-times
+  for (const t of beats) {
+    if (t < -1e-6) continue;
+    const k = Math.max(0, Math.round(t / expectedPeriod));
+    (byK.get(k) || byK.set(k, []).get(k)).push(Math.max(0, t));
+  }
+  const xs = [], ys = [];
+  for (const k of [...byK.keys()].sort((a, b) => a - b)) {
+    const arr = byK.get(k).sort((a, b) => a - b);
+    const med = arr[Math.floor(arr.length / 2)];  // robust take-time for this slot
+    if (xs.length && med <= xs[xs.length - 1] + 1e-3) continue;
+    xs.push(med); ys.push(k * targetPeriod);
+  }
+  if (!xs.length) { xs.push(0); ys.push(0); }
+  if (ys[0] === 0) xs[0] = 0; else { xs.unshift(0); ys.unshift(0); }
+  if (xs.length < 2) { xs.push(xs[0] + expectedPeriod); ys.push(ys[0] + targetPeriod); }
   return new Pchip(xs, ys);
 }

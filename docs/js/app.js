@@ -153,13 +153,11 @@ export function mountApp(rootEl, opts = {}) {
     if ((t.octave || 1) !== 1)
       beats = trackBeats(trimToDownbeat(t.mono, a.downbeat), trackBpm(t)).map((x) => x + a.downbeat);
     // include the four count beats when keeping the count-in (a.beats starts at
-    // the downbeat), else the count-in region would get mis-warped.
+    // the downbeat). Each beat is snapped to its grid slot by the take's own beat
+    // period, so a near-downbeat duplicate can't shove the start over a beat.
     const absBeats = state.keepCountin ? [...ci.counts, ci.downbeat, ...beats] : [a.downbeat, ...beats];
-    const rel = absBeats.map((b) => b - anchor).filter((b) => b >= -1e-6).sort((x, y) => x - y);
-    const beatsRel = [];
-    for (const v of rel) if (!beatsRel.length || v > beatsRel[beatsRel.length - 1] + 0.05) beatsRel.push(Math.max(0, v));
-    if (!beatsRel.length || beatsRel[0] > 1e-3) beatsRel.unshift(0);
-    return { warp: straightenCurve(beatsRel, period), anchor };
+    const rel = absBeats.map((b) => b - anchor).filter((b) => b >= -1e-6);
+    return { warp: straightenCurve(rel, period, 60 / trackBpm(t)), anchor };
   }
 
   function alignedAudio(t, warp, anchor, period) {
@@ -203,7 +201,38 @@ export function mountApp(rootEl, opts = {}) {
     drawMaster();
     $(".render-vid").hidden = !state.tracks.some((t) => t.hasVideo && t._warpFn && !t.mute);
     refreshAll();
+    dumpDiag(target, period);
     setStatus(`mixed ${sound.length} take(s) @ ${target.toFixed(0)} bpm — ${(state.mix.length / SR).toFixed(1)}s`);
+  }
+
+  // Under-the-hood diagnostic: logged to the console after every mix (and left on
+  // window.__jamDiag). Copy the "JAM-DIAG …" line to inspect what the warp did —
+  // notably the gap from the downbeat to the first played note (is a pause real
+  // in the take, or inserted by warping?) and the warp anchors take→grid.
+  function dumpDiag(target, period) {
+    const r3 = (x) => Math.round(x * 1000) / 1000;
+    const diag = {
+      targetBpm: Math.round(target * 10) / 10, periodMs: Math.round(period * 1000),
+      keepCountin: state.keepCountin, mixDurS: r3(state.mix.length / SR),
+      tracks: state.tracks.filter((t) => t.analysis && t.analysis.countin).map((t) => {
+        const a = t.analysis, ci = a.countin, beatsAbs = a.beats || [];
+        const firstPlay = (a.onsetTimes || []).find((o) => o > a.downbeat + 0.02);
+        return {
+          name: t.name, oct: t.octave, nudge: t.nudge, paired: t.pairedWith || null,
+          searchStart: r3(t.searchStart || 0),
+          bpm: Math.round(ci.bpm * 10) / 10, downbeat: r3(ci.downbeat), counts: ci.counts.map(r3),
+          firstPlayedOnset: firstPlay != null ? r3(firstPlay) : null,
+          gapDownbeatToFirstPlayMs: firstPlay != null ? Math.round((firstPlay - a.downbeat) * 1000) : null,
+          nBeats: beatsAbs.length,
+          beatIoisMs: beatsAbs.slice(1, 13).map((b, i) => Math.round((b - beatsAbs[i]) * 1000)),
+          warpTakeS: t._warpFn ? Array.from(t._warpFn.xs).slice(0, 12).map(r3) : null,
+          warpGridS: t._warpFn ? Array.from(t._warpFn.ys).slice(0, 12).map(r3) : null,
+          alignedDurS: t._aligned ? r3(t._aligned.length / SR) : null,
+        };
+      }),
+    };
+    window.__jamDiag = diag;
+    try { console.log("JAM-DIAG " + JSON.stringify(diag)); } catch (e) {}
   }
 
   function refreshAll() {

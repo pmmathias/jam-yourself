@@ -32,8 +32,8 @@ export function trackBeatsFromEnv(env, bpm, { fps = ENV_FPS, tightness = 100 } =
   // hold tempo, so we forbid octave jumps (0.5x/2x) that make the tracker lock
   // onto subdivisions and then over-warp. Through a short pause the DP simply
   // continues the grid at tempo (no onset needed).
-  const wMin = Math.max(1, Math.round(period * 0.7));
-  const wMax = Math.round(period * 1.3);
+  const wMin = Math.max(1, Math.round(period * 0.88));
+  const wMax = Math.round(period * 1.12);
   for (let i = 0; i < n; i++) {
     let best = ls[i];      // cost of starting a beat sequence here
     let bestJ = -1;
