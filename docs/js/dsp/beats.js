@@ -27,9 +27,13 @@ export function trackBeatsFromEnv(env, bpm, { fps = ENV_FPS, tightness = 100 } =
 
   const score = new Float32Array(n);
   const back = new Int32Array(n).fill(-1);
-  // search window around one period before each frame
-  const wMin = Math.round(period * 0.5);
-  const wMax = Math.round(period * 2.0);
+  // search window around one period before each frame. Kept NARROW (within
+  // ~±30% of the count-in period) on purpose: the player is assumed to roughly
+  // hold tempo, so we forbid octave jumps (0.5x/2x) that make the tracker lock
+  // onto subdivisions and then over-warp. Through a short pause the DP simply
+  // continues the grid at tempo (no onset needed).
+  const wMin = Math.max(1, Math.round(period * 0.7));
+  const wMax = Math.round(period * 1.3);
   for (let i = 0; i < n; i++) {
     let best = ls[i];      // cost of starting a beat sequence here
     let bestJ = -1;

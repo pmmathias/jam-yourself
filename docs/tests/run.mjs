@@ -133,5 +133,22 @@ for (const bpm of [100, 120, 144]) {
   ok(sd(after) < sd(before), `stretch reduces drift sd (${(sd(before) * 1000).toFixed(0)}->${(sd(after) * 1000).toFixed(0)}ms)`);
 }
 
+// ---- 10. gentleness: subdivisions must not trigger double-tempo over-warp ----
+{
+  const { warpStretch } = await import("../js/dsp/stretch.js");
+  const { warpCurveFromBeats } = await import("../js/dsp/warp.js");
+  const { trackBeats } = await import("../js/dsp/beats.js");
+  // steady 120bpm beats + weaker eighth-note subdivisions (tempts 2x tempo)
+  const beatT = [], sub = [];
+  for (let k = 0; k < 20; k++) { beatT.push(k * 0.5); sub.push(k * 0.5 + 0.25); }
+  const y = place(beatT, beatT[beatT.length - 1] + 0.6);
+  const yc = place(sub, beatT[beatT.length - 1] + 0.6, SR, () => 0.4);
+  for (let i = 0; i < y.length; i++) y[i] += (yc[i] || 0);
+  const beats = trackBeats(y, 120);                 // seeded at the true tempo
+  const warped = warpStretch(y, warpCurveFromBeats(beats, 0.5));
+  const ratio = warped.length / y.length;
+  ok(ratio > 0.85 && ratio < 1.18, `steady take stays gentle (dur ratio ${ratio.toFixed(2)}, no 2x stretch)`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
