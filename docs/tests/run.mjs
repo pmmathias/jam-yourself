@@ -123,6 +123,25 @@ for (const bpm of [100, 120, 144]) {
   ok(wild <= 1, `offbeat: few wild intervals (got ${wild})`);
 }
 
+// ---- 5d. busy/subdivided back half must NOT drag the tempo faster ----------
+// Steady ~112bpm (0.534s) throughout, but the second half adds strong on-the-
+// half-beat hits (denser onsets). A last-interval tracker walks down into them
+// (the take-4 regression: 112 -> ~140bpm). The smoothed tracker must hold tempo.
+{
+  const beat = 0.534, beats = [], subs = [];
+  for (let k = 0; k < 36; k++) {
+    beats.push(k * beat);
+    if (k >= 18 && k < 36) subs.push(k * beat + beat / 2); // busy back half
+  }
+  const y = place([...beats, ...subs], 36 * beat + 0.6, SR,
+    (k) => (k < beats.length ? 1 : 1.4)); // subdivisions even LOUDER than beats
+  const tracked = trackBeats(y, 104.6);              // count-in a bit slow, like the diag
+  const iv = tracked.slice(1).map((b, i) => b - tracked[i]).sort((a, b) => a - b);
+  const med = iv[Math.floor(iv.length / 2)];
+  near(med, beat, 0.05, "busy back half: median interval holds ~0.534s");
+  ok(med > 0.45, `busy back half: did NOT speed up into subdivisions (med ${med.toFixed(3)}s)`);
+}
+
 // ---- 6. PCHIP monotone + interpolating -------------------------------------
 {
   const xs = [0, 1, 2, 3, 4], ys = [0, 0.5, 0.9, 2.5, 2.6];

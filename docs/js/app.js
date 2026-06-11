@@ -272,7 +272,9 @@ export function mountApp(rootEl, opts = {}) {
           firstPlayedOnset: firstPlay != null ? r3(firstPlay) : null,
           gapDownbeatToFirstPlayMs: firstPlay != null ? Math.round((firstPlay - a.downbeat) * 1000) : null,
           nBeats: beatsAbs.length,
-          beatIoisMs: beatsAbs.slice(1, 13).map((b, i) => Math.round((b - beatsAbs[i]) * 1000)),
+          // FULL inter-beat-interval trajectory (ms): shows where the tracked
+          // tempo drifts/latches across the whole take, not just the start.
+          beatIoisMs: beatsAbs.slice(1).map((b, i) => Math.round((b - beatsAbs[i]) * 1000)),
           warpTakeS: t._warpFn ? Array.from(t._warpFn.xs).slice(0, 12).map(r3) : null,
           warpGridS: t._warpFn ? Array.from(t._warpFn.ys).slice(0, 12).map(r3) : null,
           alignedDurS: t._aligned ? r3(t._aligned.length / SR) : null,
