@@ -19,33 +19,50 @@ function localScore(env) {
   return out;
 }
 
-export function trackBeatsFromEnv(env, bpm, { fps = ENV_FPS, tightness = 100 } = {}) {
+// Tempo coupling is LOCAL, not anchored to a single global tempo. The idea
+// (from the player's reality): over a long take — minutes — the tempo can
+// genuinely drift a lot, well past ±12%; only pros hold a click. But within a
+// short horizon (~10s, a handful of beats) the tempo is steady, so a peak that
+// sits far off the predicted beat is almost always an OFFBEAT (syncope / ghost
+// hit), not a sudden tempo change. So:
+//   * the per-hop search window and the smoothness penalty both reference the
+//     LAST measured interval (running tempo), not the count-in period — this
+//     lets the tempo drift freely over the whole take while staying tight
+//     beat-to-beat (an offbeat would need a >windowFrac jump and is rejected);
+//   * the only use of the count-in period is (a) to seed the very first hop and
+//     (b) an ABSOLUTE clamp [period*0.6, period*1.6] on the running tempo, the
+//     sole guard against the grid slowly creeping into a 0.5x/2x octave lock.
+//     The clamp adds NO cost, so it never fights honest drift inside the band.
+// Through a short pause the DP simply continues at the running tempo.
+export function trackBeatsFromEnv(env, bpm, { fps = ENV_FPS, tightness = 100, windowFrac = 0.2 } = {}) {
   const n = env.length;
   if (n < 2) return [];
-  const period = (60 / bpm) * fps; // frames per beat
+  const period = (60 / bpm) * fps; // frames per beat (count-in tempo)
+  const lo = period * 0.6, hi = period * 1.6; // absolute octave guard
   const ls = localScore(env);
 
   const score = new Float32Array(n);
   const back = new Int32Array(n).fill(-1);
-  // search window around one period before each frame. Kept NARROW (within
-  // ~±30% of the count-in period) on purpose: the player is assumed to roughly
-  // hold tempo, so we forbid octave jumps (0.5x/2x) that make the tracker lock
-  // onto subdivisions and then over-warp. Through a short pause the DP simply
-  // continues the grid at tempo (no onset needed).
-  const wMin = Math.max(1, Math.round(period * 0.88));
-  const wMax = Math.round(period * 1.12);
-  for (let i = 0; i < n; i++) {
-    let best = ls[i];      // cost of starting a beat sequence here
-    let bestJ = -1;
-    for (let d = wMin; d <= wMax; d++) {
-      const j = i - d;
-      if (j < 0) break;
-      const txcost = -tightness * Math.pow(Math.log(d / period), 2);
-      const full = ls[i] + score[j] + txcost;
-      if (full > best) { best = full; bestJ = j; }
+  const lastD = new Int32Array(n);       // interval (frames) that led INTO frame i
+  for (let i = 0; i < n; i++) score[i] = ls[i]; // cost of starting a sequence here
+
+  // forward relaxation: from each frame j, step to i = j + d for d within
+  // ±windowFrac of j's running tempo (or the count-in period at a sequence start).
+  for (let j = 0; j < n; j++) {
+    const expected = lastD[j] > 0 ? Math.min(hi, Math.max(lo, lastD[j])) : period;
+    const dMin = Math.max(1, Math.round(expected * (1 - windowFrac)));
+    const dMax = Math.round(expected * (1 + windowFrac));
+    for (let d = dMin; d <= dMax; d++) {
+      const i = j + d;
+      if (i >= n) break;
+      // penalise tempo CHANGE (vs the previous interval), not deviation from a
+      // fixed tempo; the first hop has no previous interval so it's seeded to
+      // the count-in period instead.
+      const ref = lastD[j] > 0 ? lastD[j] : period;
+      const txcost = -tightness * Math.pow(Math.log(d / ref), 2);
+      const full = score[j] + ls[i] + txcost;
+      if (full > score[i]) { score[i] = full; back[i] = j; lastD[i] = d; }
     }
-    score[i] = best;
-    back[i] = bestJ;
   }
 
   // start backtrace from the best-scoring frame in the last period

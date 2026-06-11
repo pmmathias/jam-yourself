@@ -89,6 +89,40 @@ for (const bpm of [100, 120, 144]) {
   near(med, beat, 0.05, "tracked beat interval ~0.5s");
 }
 
+// ---- 5b. follows large gradual tempo drift (>12%) over a long take ---------
+// A 3-min player slows down; the tracker must FOLLOW the drift (seeded at the
+// start tempo), not snap back to the count-in period. Period grows 0.50->0.66s
+// (+32%) across the take.
+{
+  const times = [0]; let t = 0, p = 0.5;
+  for (let k = 0; k < 40; k++) { t += p; times.push(t); p *= 1.008; } // ~+0.8%/beat
+  const y = place(times, t + 0.6);
+  const beats = trackBeats(y, 120);                 // seeded at 120bpm = 0.5s
+  ok(beats.length >= 34, `drift: tracked enough beats (got ${beats.length})`);
+  const iv = beats.slice(1).map((b, i) => b - beats[i]);
+  const early = iv.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
+  const late = iv.slice(-5).reduce((a, b) => a + b, 0) / 5;
+  near(early, 0.5, 0.04, "drift: early interval ~0.50s");
+  ok(late > 0.6, `drift: late interval followed drift (got ${late.toFixed(3)}s, want >0.60)`);
+}
+
+// ---- 5c. rejects offbeat peaks within a steady stretch ---------------------
+// Steady 120bpm beats with a few strong stray onsets landing OFF the grid.
+// Short-term tempo is steady, so these must be read as offbeats, not chased:
+// the median tracked interval stays ~0.5s.
+{
+  const beat = 0.5, times = [];
+  for (let k = 0; k < 24; k++) times.push(k * beat);
+  const strays = [3.18, 7.37, 11.12];              // off-grid hits
+  const y = place([...times, ...strays], 13, SR, (k) => (k >= 24 ? 1.1 : 1));
+  const beats = trackBeats(y, 120);
+  const iv = beats.slice(1).map((b, i) => b - beats[i]).sort((a, b) => a - b);
+  const med = iv[Math.floor(iv.length / 2)];
+  near(med, beat, 0.04, "offbeat: median interval stays ~0.5s");
+  const wild = iv.filter((d) => d < 0.35 || d > 0.65).length;
+  ok(wild <= 1, `offbeat: few wild intervals (got ${wild})`);
+}
+
 // ---- 6. PCHIP monotone + interpolating -------------------------------------
 {
   const xs = [0, 1, 2, 3, 4], ys = [0, 0.5, 0.9, 2.5, 2.6];
