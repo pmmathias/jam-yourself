@@ -6,6 +6,8 @@
 // mount point) without touching global styles. Returns a destroy() function.
 import { SR } from "./dsp/constants.js";
 import { analyzeTake, straightenCurve } from "./dsp/engine.js";
+import { onsetEnvelope } from "./dsp/onset.js";
+import { ENV_FPS } from "./dsp/constants.js";
 import { trimToDownbeat } from "./dsp/countin.js";
 import { mixStems, nudge as nudgeShift } from "./dsp/mix.js";
 import { warpStretch } from "./dsp/stretch.js";
@@ -256,11 +258,37 @@ export function mountApp(rootEl, opts = {}) {
   // window.__jamDiag). Copy the "JAM-DIAG …" line to inspect what the warp did —
   // notably the gap from the downbeat to the first played note (is a pause real
   // in the take, or inserted by warping?) and the warp anchors take→grid.
+  // residual sub-beat phase between aligned stems: cross-correlate each sound
+  // track's onset envelope against the FIRST sound track's, peak lag in ms.
+  // If beats are truly grid-pinned these should be ~0; a consistent non-zero
+  // lag means the warp left a per-track offset (anchor jitter / tracker phase /
+  // stretch latency) — exactly the "loose common alignment" symptom.
+  function xcorrLagsMs(period) {
+    const sound = soundTracksOf().filter((t) => t._aligned);
+    if (sound.length < 2) return null;
+    const envs = sound.map((t) => onsetEnvelope(t._aligned, SR));
+    const ref = envs[0];
+    const maxLag = Math.round(period * 0.5 * ENV_FPS); // search ±half a beat
+    const lagOf = (e) => {
+      let best = -Infinity, bestL = 0;
+      for (let L = -maxLag; L <= maxLag; L++) {
+        let s = 0;
+        const n = Math.min(ref.length, e.length);
+        for (let i = Math.max(0, -L); i < n - Math.max(0, L); i++) s += ref[i] * e[i + L];
+        if (s > best) { best = s; bestL = L; }
+      }
+      return Math.round((bestL / ENV_FPS) * 1000);
+    };
+    return sound.map((t, i) => ({ name: t.name, lagMs: i === 0 ? 0 : lagOf(envs[i]) }));
+  }
+
   function dumpDiag(target, period) {
     const r3 = (x) => Math.round(x * 1000) / 1000;
     const diag = {
       targetBpm: Math.round(target * 10) / 10, periodMs: Math.round(period * 1000),
       keepCountin: state.keepCountin, mixDurS: r3(state.mix.length / SR),
+      // residual sub-beat offset of each aligned stem vs the first (ms)
+      stemLagsMs: xcorrLagsMs(period),
       tracks: state.tracks.filter((t) => t.analysis && t.analysis.countin).map((t) => {
         const a = t.analysis, ci = a.countin, beatsAbs = a.beats || [];
         const firstPlay = (a.onsetTimes || []).find((o) => o > a.downbeat + 0.02);
