@@ -158,7 +158,14 @@ export function mountApp(rootEl, opts = {}) {
     // period, so a near-downbeat duplicate can't shove the start over a beat.
     const absBeats = state.keepCountin ? [...ci.counts, ci.downbeat, ...beats] : [a.downbeat, ...beats];
     const rel = absBeats.map((b) => b - anchor).filter((b) => b >= -1e-6);
-    return { warp: straightenCurve(rel, period, 60 / trackBpm(t)), anchor };
+    // Snap beats using the ACTUAL played period (median tracked beat interval),
+    // not the count-in tempo — the player may count slightly slower/faster than
+    // they then play, and snapping by the count-in period would progressively
+    // misassign beats to grid slots.
+    const iois = beats.slice(1).map((b, i) => b - beats[i]).filter((d) => d > 0.1).sort((x, y) => x - y);
+    const expectedPeriod = iois.length ? iois[Math.floor(iois.length / 2)] : 60 / trackBpm(t);
+    t._expectedPeriod = expectedPeriod;
+    return { warp: straightenCurve(rel, period, expectedPeriod), anchor };
   }
 
   function alignedAudio(t, warp, anchor, period) {
@@ -221,7 +228,8 @@ export function mountApp(rootEl, opts = {}) {
         return {
           name: t.name, oct: t.octave, nudge: t.nudge, paired: t.pairedWith || null,
           searchStart: r3(t.searchStart || 0),
-          bpm: Math.round(ci.bpm * 10) / 10, downbeat: r3(ci.downbeat), counts: ci.counts.map(r3),
+          bpm: Math.round(ci.bpm * 10) / 10, playedBpm: t._expectedPeriod ? Math.round(600 / t._expectedPeriod) / 10 : null,
+          downbeat: r3(ci.downbeat), counts: ci.counts.map(r3),
           firstPlayedOnset: firstPlay != null ? r3(firstPlay) : null,
           gapDownbeatToFirstPlayMs: firstPlay != null ? Math.round((firstPlay - a.downbeat) * 1000) : null,
           nBeats: beatsAbs.length,
