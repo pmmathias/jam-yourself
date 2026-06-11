@@ -7,7 +7,7 @@
 import { SR } from "./dsp/constants.js";
 import { analyzeTake, straightenCurve } from "./dsp/engine.js";
 import { onsetEnvelope } from "./dsp/onset.js";
-import { ENV_FPS } from "./dsp/constants.js";
+import { ENV_FPS, HOP } from "./dsp/constants.js";
 import { trimToDownbeat } from "./dsp/countin.js";
 import { mixStems, nudge as nudgeShift } from "./dsp/mix.js";
 import { warpStretch } from "./dsp/stretch.js";
@@ -41,6 +41,7 @@ const TEMPLATE = `
         <span class="hint">auto: <b class="bpm-auto">–</b></span>
       </label>
       <label class="chk lock"><input type="checkbox" class="keep-countin" /> keep count-in</label>
+      <label class="chk lock" title="auto sub-beat lock: shift each take by its measured residual offset so transients line up"><input type="checkbox" class="tighten" checked /> 🔗 tighten</label>
       <label class="chk"><input type="checkbox" class="view-aligned" /> aligned view</label>
       <button class="play">▶ Play mix</button>
       <label class="chk"><input type="checkbox" class="metro" /> 🔊 click</label>
@@ -89,7 +90,7 @@ export function mountApp(rootEl, opts = {}) {
   const setStatus = (s) => { statusEl.textContent = s; };
 
   const state = { tracks: [], mix: null, transport: new Transport(),
-                  keepCountin: false, targetBpm: null, recording: false };
+                  keepCountin: false, tighten: true, targetBpm: null, recording: false };
   const recorder = new Recorder();
   let recCount = 0;
   let trackId = 0;
@@ -127,7 +128,7 @@ export function mountApp(rootEl, opts = {}) {
                             searchStart: t.searchStart, pairedPid: partner ? partner.pid : null };
       }
       store.saveMeta({ order: state.tracks.map((t) => t.pid),
-                       settings: { keepCountin: state.keepCountin, targetBpm: state.targetBpm },
+                       settings: { keepCountin: state.keepCountin, tighten: state.tighten, targetBpm: state.targetBpm },
                        perTrack }).catch(() => {});
     }, 500);
   }
@@ -214,6 +215,44 @@ export function mountApp(rootEl, opts = {}) {
     return warped;
   }
 
+  // Shift a mono buffer by `samp` samples: >0 delays (pad front with zeros),
+  // <0 advances (drop leading samples). Returns a new view/buffer.
+  function shiftSamples(arr, samp) {
+    if (!samp) return arr;
+    if (samp > 0) { const o = new Float32Array(arr.length + samp); o.set(arr, samp); return o; }
+    return arr.subarray(Math.min(-samp, arr.length));
+  }
+
+  // Auto sub-beat lock: tempo + beat grid are matched, but the warp can leave a
+  // small constant per-take offset (anchor jitter, per-instrument onset phase,
+  // stretch latency) that smears stacked transients. Cross-correlate each stem's
+  // onset envelope against the first over the MUSIC region (skip the count-in)
+  // within ±half a beat, and return the integer-sample shift that best aligns it.
+  // Guarded: only shifts when the correlation peak clearly beats the no-shift
+  // value, so dissimilar instruments (no shared onsets) are left alone.
+  function tightenShifts(stems, period) {
+    const shifts = stems.map(() => 0);
+    if (!state.tighten || stems.length < 2) return shifts;
+    const skip = Math.round((state.keepCountin ? 4 : 0) * period * SR); // past count-in
+    const envs = stems.map((s) => onsetEnvelope(s.subarray(Math.min(skip, s.length)), SR));
+    const ref = envs[0];
+    const maxLag = Math.round(period * 0.5 * ENV_FPS);
+    for (let k = 1; k < stems.length; k++) {
+      const e = envs[k], n = Math.min(ref.length, e.length);
+      const corr = (L) => { let s = 0; for (let i = Math.max(0, -L); i < n - Math.max(0, L); i++) s += ref[i] * e[i + L]; return s; };
+      let best = -Infinity, bestL = 0, s0 = 0;
+      for (let L = -maxLag; L <= maxLag; L++) { const s = corr(L); if (L === 0) s0 = s; if (s > best) { best = s; bestL = L; } }
+      // sub-frame peak via parabolic interpolation around bestL
+      let frac = bestL;
+      if (bestL > -maxLag && bestL < maxLag) {
+        const a = corr(bestL - 1), c = corr(bestL + 1), d = a - 2 * best + c;
+        if (d < 0) frac = bestL + 0.5 * (a - c) / d;
+      }
+      if (best > 1.08 * Math.max(1e-9, s0)) shifts[k] = -Math.round(frac * HOP); // late stem -> advance
+    }
+    return shifts;
+  }
+
   async function recompute() {
     persistMeta();
     const sound = soundTracksOf();
@@ -233,7 +272,11 @@ export function mountApp(rootEl, opts = {}) {
       t._aligned = alignedAudio(t, warp, anchor, period);
       stems.push(t._aligned);
     }
-    state.mix = mixStems(stems);
+    // auto sub-beat lock: nudge each stem by its measured residual offset so
+    // transients across takes line up (tempo+grid already match).
+    const shifts = tightenShifts(stems, period);
+    sound.forEach((t, k) => { t._tightenShift = shifts[k]; t._aligned = shiftSamples(t._aligned, shifts[k]); });
+    state.mix = mixStems(sound.map((t) => t._aligned));
 
     // phase 2 — a paired video take borrows its sound take's EXACT warp curve
     // (anchored at its own count-in), so its picture stays in sync with that
@@ -243,7 +286,8 @@ export function mountApp(rootEl, opts = {}) {
       const partner = state.tracks.find((p) => p.id === t.pairedWith);
       if (partner && partner._warpFn) {
         t._warpFn = partner._warpFn; t._anchor = t.analysis.downbeat;
-        t._aligned = alignedAudio(t, partner._warpFn, t._anchor, period);
+        t._aligned = shiftSamples(alignedAudio(t, partner._warpFn, t._anchor, period),
+                                  partner._tightenShift || 0);
       } else { t._warpFn = null; t._aligned = null; }
     }
 
@@ -295,6 +339,7 @@ export function mountApp(rootEl, opts = {}) {
         return {
           name: t.name, oct: t.octave, nudge: t.nudge, paired: t.pairedWith || null,
           searchStart: r3(t.searchStart || 0),
+          tightenMs: t._tightenShift ? Math.round((t._tightenShift / SR) * 1000) : 0,
           bpm: Math.round(ci.bpm * 10) / 10, playedBpm: t._expectedPeriod ? Math.round(600 / t._expectedPeriod) / 10 : null,
           downbeat: r3(ci.downbeat), counts: ci.counts.map(r3),
           firstPlayedOnset: firstPlay != null ? r3(firstPlay) : null,
@@ -374,6 +419,7 @@ export function mountApp(rootEl, opts = {}) {
     URL.revokeObjectURL(url);
   };
   $(".keep-countin").onchange = (e) => { state.keepCountin = e.target.checked; recompute(); };
+  $(".tighten").onchange = (e) => { state.tighten = e.target.checked; recompute(); };
   $(".view-aligned").onchange = () => refreshAll();
   $(".bpm-input").onchange = (e) => { const v = parseFloat(e.target.value); state.targetBpm = v > 0 ? v : null; recompute(); };
 
@@ -482,6 +528,7 @@ export function mountApp(rootEl, opts = {}) {
     });
     if (meta.settings) {
       state.keepCountin = !!meta.settings.keepCountin; $(".keep-countin").checked = state.keepCountin;
+      if (meta.settings.tighten != null) { state.tighten = !!meta.settings.tighten; $(".tighten").checked = state.tighten; }
       state.targetBpm = meta.settings.targetBpm || null;
       if (state.targetBpm) $(".bpm-input").value = state.targetBpm;
     }
