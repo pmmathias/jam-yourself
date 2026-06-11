@@ -97,6 +97,7 @@ export function makeTrackRow(track, cb) {
   row.querySelector(".nminus").onclick = () => { track.nudge--; nval.textContent = track.nudge; cb.onNudge(); };
   row.querySelector(".nplus").onclick = () => { track.nudge++; nval.textContent = track.nudge; cb.onNudge(); };
   const muteBtn = row.querySelector(".mute");
+  track._muteBtn = muteBtn;
   muteBtn.onclick = () => { track.mute = !track.mute; muteBtn.classList.toggle("on", track.mute); cb.onMute(); };
   row.querySelector(".retake").onclick = () => cb.onRetake && cb.onRetake();
   row.querySelector(".remove").onclick = () => cb.onRemove();
@@ -121,6 +122,7 @@ export function refreshTrackRow(track, sr, opts = {}) {
   track._vidBadge.hidden = !track.hasVideo;
   track._retakeBtn.hidden = !track.fromRec;
   track._pairSelect.hidden = !track.hasVideo;
+  if (track._muteBtn) track._muteBtn.classList.toggle("on", track.mute);
   const oct = track.octave || 1;
   track._octVal.hidden = oct === 1;
   track._octVal.textContent = oct === 1 ? "" : (oct > 1 ? `×${oct}` : `÷${Math.round(1 / oct)}`);

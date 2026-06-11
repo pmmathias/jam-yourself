@@ -13,6 +13,7 @@ import { decodeToMono, Transport, wavBlob } from "./audio.js";
 import { makeTrackRow, refreshTrackRow, drawWaveform } from "./ui.js";
 import { Recorder } from "./recorder.js";
 import { renderTiledVideo } from "./videorender.js";
+import * as store from "./store.js";
 
 const COLORS = ["#22d3ee", "#fb7185", "#f59e0b", "#60a5fa", "#a78bfa", "#34d399"];
 
@@ -43,6 +44,7 @@ const TEMPLATE = `
       <label class="chk"><input type="checkbox" class="metro" /> 🔊 click</label>
       <button class="download">⤓ WAV</button>
       <button class="render-vid lock" hidden>▶ Render video</button>
+      <button class="clear lock" title="remove all takes">🗑</button>
     </div>
     <div class="status"></div>
   </section>
@@ -102,24 +104,50 @@ export function mountApp(rootEl, opts = {}) {
     return bpms.length ? bpms[Math.floor(bpms.length / 2)] : null;
   };
 
-  async function addTrack(name, blob, { videoBlob = null, videoExt = "webm",
-                                        fromRec = false, recVideo = false } = {}) {
+  // persist the session (ordered pids + per-take settings + globals); blobs are
+  // saved once per take in addTrack. Debounced.
+  let metaTimer = null;
+  function persistMeta() {
+    clearTimeout(metaTimer);
+    metaTimer = setTimeout(() => {
+      const perTrack = {};
+      for (const t of state.tracks) {
+        const partner = t.pairedWith != null ? state.tracks.find((p) => p.id === t.pairedWith) : null;
+        perTrack[t.pid] = { nudge: t.nudge, octave: t.octave, mute: t.mute,
+                            searchStart: t.searchStart, pairedPid: partner ? partner.pid : null };
+      }
+      store.saveMeta({ order: state.tracks.map((t) => t.pid),
+                       settings: { keepCountin: state.keepCountin, targetBpm: state.targetBpm },
+                       perTrack }).catch(() => {});
+    }, 500);
+  }
+
+  async function addTrack(name, blob, opts = {}) {
+    const { videoBlob = null, videoExt = "webm", fromRec = false, recVideo = false,
+            restore = null } = opts;
     setStatus(`decoding ${name} …`);
     let mono;
     try { mono = await decodeToMono(blob); }
     catch (e) { setStatus(`could not decode ${name}`); return; }
+    const searchStart = restore ? (restore.searchStart || 0) : 0;
     setStatus(`analysing ${name} …`);
-    const analysis = analyzeTake(mono);
-    const track = { name, mono, analysis, nudge: 0, mute: false, octave: 1, pairedWith: null,
-                    searchStart: 0, id: ++trackId, videoBlob, videoExt, hasVideo: !!videoBlob,
-                    fromRec, recVideo, color: COLORS[state.tracks.length % COLORS.length] };
+    const analysis = analyzeTake(mono, SR, { fromTime: searchStart });
+    const track = { name, mono, srcBlob: blob, analysis,
+                    nudge: restore ? (restore.nudge || 0) : 0,
+                    mute: restore ? !!restore.mute : false,
+                    octave: restore ? (restore.octave || 1) : 1,
+                    pairedWith: null, searchStart, id: ++trackId,
+                    pid: (restore && restore.pid) || store.newPid(),
+                    videoBlob, videoExt, hasVideo: !!videoBlob, fromRec, recVideo,
+                    color: COLORS[state.tracks.length % COLORS.length] };
     state.tracks.push(track);
+    if (!restore) store.saveBlob(track.pid, { srcBlob: blob, name, hasVideo: !!videoBlob, videoExt, fromRec, recVideo }).catch(() => {});
     const row = makeTrackRow(track, {
       onNudge: () => recompute(),
       onMute: () => recompute(),
       onOctave: (f) => { track.octave = Math.min(4, Math.max(0.25, (track.octave || 1) * f)); recompute(); },
       onPair: (val) => { track.pairedWith = val ? Number(val) : null; recompute(); },
-      onRemove: () => { state.tracks = state.tracks.filter((t) => t !== track); row.remove(); recompute(); },
+      onRemove: () => { state.tracks = state.tracks.filter((t) => t !== track); row.remove(); store.deleteBlob(track.pid).catch(() => {}); recompute(); },
       onRetake: async () => {           // discard this take and record a fresh one
         state.tracks = state.tracks.filter((t) => t !== track); row.remove();
         await recompute();
@@ -134,6 +162,7 @@ export function mountApp(rootEl, opts = {}) {
     });
     tracksEl.appendChild(row);
     refreshTrackRow(track, SR);
+    return track;
   }
 
   async function addFiles(files) {
@@ -175,6 +204,7 @@ export function mountApp(rootEl, opts = {}) {
   }
 
   async function recompute() {
+    persistMeta();
     const sound = soundTracksOf();
     $(".bpm-auto").textContent = medianBpm() ? `${medianBpm().toFixed(0)} bpm` : "–";
     if (!sound.length) { state.mix = null; drawMaster(); $(".render-vid").hidden = true; refreshAll(); setStatus("load or record takes with a count-in"); return; }
@@ -381,9 +411,47 @@ export function mountApp(rootEl, opts = {}) {
   drop.addEventListener("drop", (e) => { if (e.dataTransfer.files.length) addFiles([...e.dataTransfer.files]); });
   $(".file").addEventListener("change", (e) => { if (e.target.files.length) addFiles([...e.target.files]); });
 
+  $(".clear").onclick = async () => {
+    if (state.transport.playing) stopPlay();
+    state.tracks = []; tracksEl.innerHTML = "";
+    try { await store.clearAll(); } catch (e) {}
+    await recompute();
+  };
+
   const onResize = () => { refreshAll(); drawMaster(); };
   window.addEventListener("resize", onResize);
-  setStatus("drop or record your count-in takes to start");
+
+  // restore persisted takes (IndexedDB) across reloads
+  async function loadSession() {
+    let meta, blobs;
+    try { meta = await store.getMeta(); blobs = await store.getAllBlobs(); } catch (e) { return false; }
+    if (!meta || !meta.order || !meta.order.length) return false;
+    setStatus("restoring your takes …");
+    for (const pid of meta.order) {
+      const rec = blobs[pid]; if (!rec) continue;
+      const pt = (meta.perTrack || {})[pid] || {};
+      await addTrack(rec.name, rec.srcBlob, {
+        videoBlob: rec.hasVideo ? rec.srcBlob : null, videoExt: rec.videoExt,
+        fromRec: rec.fromRec, recVideo: rec.recVideo,
+        restore: { pid, nudge: pt.nudge, octave: pt.octave, mute: pt.mute, searchStart: pt.searchStart },
+      });
+    }
+    const byPid = {}; state.tracks.forEach((t) => { byPid[t.pid] = t; });
+    state.tracks.forEach((t) => {
+      const pt = (meta.perTrack || {})[t.pid] || {};
+      if (pt.pairedPid && byPid[pt.pairedPid]) t.pairedWith = byPid[pt.pairedPid].id;
+    });
+    if (meta.settings) {
+      state.keepCountin = !!meta.settings.keepCountin; $(".keep-countin").checked = state.keepCountin;
+      state.targetBpm = meta.settings.targetBpm || null;
+      if (state.targetBpm) $(".bpm-input").value = state.targetBpm;
+    }
+    await recompute();
+    return state.tracks.length > 0;
+  }
+  loadSession().then((restored) => {
+    if (!restored) setStatus("drop or record your count-in takes to start");
+  });
 
   return function destroy() {
     try { state.transport.stop(); } catch (e) {}
