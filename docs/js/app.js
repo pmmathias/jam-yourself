@@ -5,7 +5,7 @@
 // the `.jy` class), so it drops into any page (e.g. a QuantenBlog component
 // mount point) without touching global styles. Returns a destroy() function.
 import { SR } from "./dsp/constants.js";
-import { analyzeTake, straightenCurve, trackBeats } from "./dsp/engine.js";
+import { analyzeTake, straightenCurve } from "./dsp/engine.js";
 import { trimToDownbeat } from "./dsp/countin.js";
 import { mixStems, nudge as nudgeShift } from "./dsp/mix.js";
 import { warpStretch } from "./dsp/stretch.js";
@@ -179,20 +179,18 @@ export function mountApp(rootEl, opts = {}) {
   function trackWarp(t, period) {
     const a = t.analysis, ci = a.countin;
     const anchor = state.keepCountin ? ci.counts[0] : a.downbeat;
-    let beats = a.beats;
-    if ((t.octave || 1) !== 1)
-      beats = trackBeats(trimToDownbeat(t.mono, a.downbeat), trackBpm(t)).map((x) => x + a.downbeat);
-    // include the four count beats when keeping the count-in (a.beats starts at
-    // the downbeat). Each beat is snapped to its grid slot by the take's own beat
-    // period, so a near-downbeat duplicate can't shove the start over a beat.
+    // Always use the beats tracked at the (reliable) count-in tempo. The ×2/÷2
+    // octave only RELABELS the take's tempo for the common-grid target (via
+    // medianBpm/trackBpm); it must NOT re-track at a far-off tempo, which would
+    // make the tracker fail and the warp fall apart.
+    const beats = a.beats;
     const absBeats = state.keepCountin ? [...ci.counts, ci.downbeat, ...beats] : [a.downbeat, ...beats];
     const rel = absBeats.map((b) => b - anchor).filter((b) => b >= -1e-6);
     // Snap beats using the ACTUAL played period (median tracked beat interval),
-    // not the count-in tempo — the player may count slightly slower/faster than
-    // they then play, and snapping by the count-in period would progressively
-    // misassign beats to grid slots.
+    // not the count-in tempo — players count slightly off their playing tempo,
+    // and snapping by the count-in period would progressively misassign slots.
     const iois = beats.slice(1).map((b, i) => b - beats[i]).filter((d) => d > 0.1).sort((x, y) => x - y);
-    const expectedPeriod = iois.length ? iois[Math.floor(iois.length / 2)] : 60 / trackBpm(t);
+    const expectedPeriod = iois.length ? iois[Math.floor(iois.length / 2)] : 60 / ci.bpm;
     t._expectedPeriod = expectedPeriod;
     return { warp: straightenCurve(rel, period, expectedPeriod), anchor };
   }
