@@ -113,7 +113,7 @@ export function mountApp(rootEl, opts = {}) {
       const perTrack = {};
       for (const t of state.tracks) {
         const partner = t.pairedWith != null ? state.tracks.find((p) => p.id === t.pairedWith) : null;
-        perTrack[t.pid] = { nudge: t.nudge, octave: t.octave, mute: t.mute,
+        perTrack[t.pid] = { nudge: t.nudge, octave: t.octave, mute: t.mute, bassify: t.bassify,
                             searchStart: t.searchStart, pairedPid: partner ? partner.pid : null };
       }
       store.saveMeta({ order: state.tracks.map((t) => t.pid),
@@ -136,6 +136,7 @@ export function mountApp(rootEl, opts = {}) {
                     nudge: restore ? (restore.nudge || 0) : 0,
                     mute: restore ? !!restore.mute : false,
                     octave: restore ? (restore.octave || 1) : 1,
+                    bassify: restore ? !!restore.bassify : false,
                     pairedWith: null, searchStart, id: ++trackId,
                     pid: (restore && restore.pid) || store.newPid(),
                     videoBlob, videoExt, hasVideo: !!videoBlob, fromRec, recVideo,
@@ -146,6 +147,7 @@ export function mountApp(rootEl, opts = {}) {
       onNudge: () => recompute(),
       onMute: () => recompute(),
       onOctave: (f) => { track.octave = Math.min(4, Math.max(0.25, (track.octave || 1) * f)); recompute(); },
+      onBassify: () => { track.bassify = !track.bassify; recompute(); },
       onPair: (val) => { track.pairedWith = val ? Number(val) : null; recompute(); },
       onRemove: () => { state.tracks = state.tracks.filter((t) => t !== track); row.remove(); store.deleteBlob(track.pid).catch(() => {}); recompute(); },
       onRetake: async () => {           // discard this take and record a fresh one
@@ -196,7 +198,8 @@ export function mountApp(rootEl, opts = {}) {
   }
 
   function alignedAudio(t, warp, anchor, period) {
-    let warped = warpStretch(trimToDownbeat(t.mono, anchor), warp);
+    let warped = warpStretch(trimToDownbeat(t.mono, anchor), warp, SR,
+                             { pitchOctaves: t.bassify ? -1 : 0 });
     if (t.nudge) warped = nudgeShift(warped, t.nudge, period, SR);
     return warped;
   }
@@ -431,7 +434,7 @@ export function mountApp(rootEl, opts = {}) {
       await addTrack(rec.name, rec.srcBlob, {
         videoBlob: rec.hasVideo ? rec.srcBlob : null, videoExt: rec.videoExt,
         fromRec: rec.fromRec, recVideo: rec.recVideo,
-        restore: { pid, nudge: pt.nudge, octave: pt.octave, mute: pt.mute, searchStart: pt.searchStart },
+        restore: { pid, nudge: pt.nudge, octave: pt.octave, mute: pt.mute, bassify: pt.bassify, searchStart: pt.searchStart },
       });
     }
     const byPid = {}; state.tracks.forEach((t) => { byPid[t.pid] = t; });

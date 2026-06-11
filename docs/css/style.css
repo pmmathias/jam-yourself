@@ -67,6 +67,9 @@
 .jy .oct { display:flex; align-items:center; gap:5px; }
 .jy .oct button { padding:4px 8px; border-radius:.5rem; font-size:12px; }
 .jy .oct-val { color:var(--amber); font-weight:700; font-size:12px; min-width:18px; text-align:center; }
+.jy .bassify { padding:4px 9px; border-radius:.5rem; font-size:12px; color:var(--purple,#c792ea); border-color:var(--gray-700); }
+.jy .bassify:hover { border-color:#c792ea; color:#fff; }
+.jy .bassify.on { background:#4c1d95; border-color:#c792ea; color:#fff; }
 .jy .pair { background:var(--gray-900); color:var(--gray-300); border:1px solid var(--gray-700);
   border-radius:.5rem; padding:4px 6px; font-size:12px; max-width:170px; }
 .jy .mute.on { background:#7f1d1d; border-color:var(--rose); color:#fff; }

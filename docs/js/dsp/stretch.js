@@ -5,7 +5,7 @@ import { SR } from "./constants.js";
 import { Pchip } from "./warp.js";
 
 // warp: Pchip mapping take-time -> grid-time (monotone). Returns mono Float32.
-export function warpStretch(mono, warp, sr = SR, { block = 2048, dt = 0.03 } = {}) {
+export function warpStretch(mono, warp, sr = SR, { block = 2048, dt = 0.03, pitchOctaves = 0 } = {}) {
   const n = mono.length;
   const takeDur = n / sr;
   const outLen = Math.max(1, Math.round(warp.evalScalar(takeDur) * sr));
@@ -19,6 +19,7 @@ export function warpStretch(mono, warp, sr = SR, { block = 2048, dt = 0.03 } = {
   // wandering too far; rubberband (the Python reference) is sharper still, this
   // is the browser trade-off. seq/seek/overlap ms.
   st.stretch.setParameters(sr, 40, 15, 8);
+  if (pitchOctaves) st.pitchOctaves = pitchOctaves;   // e.g. -1 = down one octave (bassify)
   const source = {
     extract(t, num, pos) {
       for (let i = 0; i < num; i++) {

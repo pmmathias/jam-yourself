@@ -75,6 +75,7 @@ export function makeTrackRow(track, cb) {
         <span class="oct-val" hidden></span>
         <button class="oct-double" title="double tempo (fix octave)">×2</button>
       </div>
+      <button class="bassify lock" title="bassify: pitch down one octave (e.g. guitar → bass)">↓8ve</button>
       <div class="nudge lock">
         <button class="nminus" title="shift one beat earlier">−</button>
         <span class="nval">0</span><small>beat</small>
@@ -103,6 +104,9 @@ export function makeTrackRow(track, cb) {
   row.querySelector(".remove").onclick = () => cb.onRemove();
   row.querySelector(".oct-half").onclick = () => cb.onOctave && cb.onOctave(0.5);
   row.querySelector(".oct-double").onclick = () => cb.onOctave && cb.onOctave(2);
+  const bassBtn = row.querySelector(".bassify");
+  bassBtn.onclick = () => cb.onBassify && cb.onBassify();
+  track._bassBtn = bassBtn;
   const pairSel = row.querySelector(".pair");
   pairSel.onchange = () => cb.onPair && cb.onPair(pairSel.value);
   track._row = row; track._canvas = canvas;
@@ -123,6 +127,7 @@ export function refreshTrackRow(track, sr, opts = {}) {
   track._retakeBtn.hidden = !track.fromRec;
   track._pairSelect.hidden = !track.hasVideo;
   if (track._muteBtn) track._muteBtn.classList.toggle("on", track.mute);
+  if (track._bassBtn) track._bassBtn.classList.toggle("on", track.bassify);
   const oct = track.octave || 1;
   track._octVal.hidden = oct === 1;
   track._octVal.textContent = oct === 1 ? "" : (oct > 1 ? `×${oct}` : `÷${Math.round(1 / oct)}`);
