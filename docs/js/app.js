@@ -92,8 +92,16 @@ export function mountApp(rootEl, opts = {}) {
   let recCount = 0;
   let trackId = 0;
 
-  // octave-corrected count-in tempo of a track (×2/÷2 buttons set t.octave)
-  const trackBpm = (t) => t.analysis.countin.bpm * (t.octave || 1);
+  // median PLAYED beat period of a take (falls back to the count-in tempo if no
+  // beats). The count-in can be counted unevenly / at a different tempo than the
+  // playing, so the common grid should follow how the take was actually PLAYED.
+  const playedPeriod = (t) => {
+    const b = (t.analysis && t.analysis.beats) || [];
+    const iois = b.slice(1).map((x, i) => x - b[i]).filter((d) => d > 0.1).sort((a, b) => a - b);
+    return iois.length ? iois[Math.floor(iois.length / 2)] : 60 / t.analysis.countin.bpm;
+  };
+  // played tempo, with the ×2/÷2 octave relabel applied
+  const trackBpm = (t) => (60 / playedPeriod(t)) * (t.octave || 1);
   // tracks whose SOUND goes into the mix: have a count-in, not muted, and not a
   // video that's paired to another take (those contribute only their picture).
   const soundTracksOf = () => state.tracks.filter(
