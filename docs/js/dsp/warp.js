@@ -55,26 +55,29 @@ export class Pchip {
   }
 }
 
-// Warp curve f: take-time -> grid-time. Each beat is SNAPPED to its nearest grid
-// slot k = round(beat / expectedPeriod) rather than numbered consecutively, so a
-// spurious near-downbeat beat (or an octave/extra/missed beat) lands on the right
-// slot instead of shoving everything one beat over (which inserts a phantom pause
-// at the start). expectedPeriod is the take's own beat period (count-in tempo);
-// targetPeriod is the common grid period. beats[] in seconds, relative to the
-// downbeat (0).
+// Warp curve f: take-time -> grid-time. Each beat advances the grid slot by the
+// INTERVAL TO THE PREVIOUS beat (round(gap/expectedPeriod), min 1; 0 = duplicate,
+// skipped) — i.e. incrementally, not by absolute round(beat/period). Absolute
+// snapping accumulates rounding drift when the played tempo differs a little from
+// expectedPeriod and then spuriously skips a slot (one played beat stretched
+// across two grid beats). Incremental advance keeps consecutive beats one slot
+// apart and still spans genuine gaps (missed beats). expectedPeriod is the take's
+// played period; targetPeriod the common grid. beats[] relative to the downbeat.
 export function warpCurveFromBeats(beats, targetPeriod, expectedPeriod = targetPeriod) {
-  const byK = new Map();                          // grid slot -> take-times
-  for (const t of beats) {
-    if (t < -1e-6) continue;
-    const k = Math.max(0, Math.round(t / expectedPeriod));
-    (byK.get(k) || byK.set(k, []).get(k)).push(Math.max(0, t));
-  }
+  const sorted = beats.filter((t) => t >= -1e-6).map((t) => Math.max(0, t)).sort((a, b) => a - b);
   const xs = [], ys = [];
-  for (const k of [...byK.keys()].sort((a, b) => a - b)) {
-    const arr = byK.get(k).sort((a, b) => a - b);
-    const med = arr[Math.floor(arr.length / 2)];  // robust take-time for this slot
-    if (xs.length && med <= xs[xs.length - 1] + 1e-3) continue;
-    xs.push(med); ys.push(k * targetPeriod);
+  let slot = 0, prevT = null;
+  for (const t of sorted) {
+    if (prevT === null) {
+      slot = Math.max(0, Math.round(t / expectedPeriod));   // first beat's slot
+    } else {
+      const adv = Math.round((t - prevT) / expectedPeriod);
+      if (adv <= 0) continue;                                // duplicate / too close
+      slot += adv;
+    }
+    prevT = t;
+    if (xs.length && t <= xs[xs.length - 1] + 1e-3) continue;
+    xs.push(t); ys.push(slot * targetPeriod);
   }
   if (!xs.length) { xs.push(0); ys.push(0); }
   if (ys[0] === 0) xs[0] = 0; else { xs.unshift(0); ys.unshift(0); }
