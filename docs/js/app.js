@@ -23,25 +23,26 @@ const TEMPLATE = `
       lock them together — no metronome.</p>
   </header>
   <section class="bar">
-    <label class="drop">
+    <label class="drop lock">
       <input type="file" class="file" accept="audio/*,video/*" multiple hidden />
       <span>＋ drop / choose takes</span>
     </label>
-    <div class="recgrp">
+    <div class="recgrp lock">
       <button class="rec">● Record</button>
       <label class="chk"><input type="checkbox" class="rec-video" /> camera</label>
       <div class="meter"><div class="rec-meter"></div></div>
     </div>
     <div class="ctrl">
-      <label>tempo
+      <label class="lock">tempo
         <input type="number" class="bpm-input" placeholder="auto" min="40" max="220" />
         <span class="hint">auto: <b class="bpm-auto">–</b></span>
       </label>
-      <label class="chk"><input type="checkbox" class="keep-countin" /> keep count-in</label>
+      <label class="chk lock"><input type="checkbox" class="keep-countin" /> keep count-in</label>
       <label class="chk"><input type="checkbox" class="view-aligned" /> aligned view</label>
       <button class="play">▶ Play mix</button>
+      <label class="chk"><input type="checkbox" class="metro" /> 🔊 click</label>
       <button class="download">⤓ WAV</button>
-      <button class="render-vid" hidden>▶ Render video</button>
+      <button class="render-vid lock" hidden>▶ Render video</button>
     </div>
     <div class="status"></div>
   </section>
@@ -259,14 +260,36 @@ export function mountApp(rootEl, opts = {}) {
     drawWaveform(masterCanvas, state.mix, SR, { playheadT });
   }
 
-  state.transport.onTime = (t) => drawMaster(t);
-  state.transport.onEnd = () => { $(".play").textContent = "▶ Play mix"; };
+  // synthetic metronome on the detected grid (k*period), accent every 4th (the
+  // "1"), so you can HEAR where the engine placed the beats/downbeats.
+  function metronomeBuffer(len, period) {
+    const m = new Float32Array(len);
+    const ping = (at, freq) => {
+      const i = Math.round(at * SR), L = Math.round(0.02 * SR);
+      for (let j = 0; j < L && i + j < len; j++) m[i + j] += 0.5 * Math.exp(-30 * j / L) * Math.sin(2 * Math.PI * freq * j / SR);
+    };
+    let k = 0;
+    for (let t = 0; t < len / SR; t += period) { ping(t, k % 4 === 0 ? 2000 : 1300); k++; }
+    return m;
+  }
+  function playBuffer() {
+    if (!state.mix) return null;
+    if (!state.metro || !state.period) return state.mix;
+    const m = metronomeBuffer(state.mix.length, state.period);
+    const out = new Float32Array(state.mix.length);
+    for (let i = 0; i < out.length; i++) out[i] = Math.max(-0.97, Math.min(0.97, state.mix[i] + 0.4 * m[i]));
+    return out;
+  }
 
-  $(".play").onclick = () => {
-    if (state.transport.playing) { state.transport.stop(); $(".play").textContent = "▶ Play mix"; return; }
-    if (!state.mix) return;
-    state.transport.play(state.mix, SR); $(".play").textContent = "■ Stop";
-  };
+  const setPlaying = (p) => rootEl.classList.toggle("playing", p);
+  state.transport.onTime = (t) => drawMaster(t);
+  state.transport.onEnd = () => { $(".play").textContent = "▶ Play mix"; setPlaying(false); };
+
+  function startPlay() { const buf = playBuffer(); if (!buf) return; state.transport.play(buf, SR); $(".play").textContent = "■ Stop"; setPlaying(true); }
+  function stopPlay() { state.transport.stop(); $(".play").textContent = "▶ Play mix"; setPlaying(false); }
+
+  $(".play").onclick = () => { if (state.transport.playing) stopPlay(); else startPlay(); };
+  $(".metro").onchange = (e) => { state.metro = e.target.checked; if (state.transport.playing) startPlay(); };
   $(".download").onclick = () => {
     if (!state.mix) return;
     const url = URL.createObjectURL(wavBlob(state.mix, SR));

@@ -68,21 +68,21 @@ export function makeTrackRow(track, cb) {
       <span class="badge bpm">–</span>
       <span class="badge db">–</span>
       <span class="badge vid" hidden>🎥</span>
-      <select class="pair" title="use this video for which take's sound?" hidden></select>
+      <select class="pair lock" title="use this video for which take's sound?" hidden></select>
       <div class="spacer"></div>
-      <div class="oct">
+      <div class="oct lock">
         <button class="oct-half" title="half tempo (fix octave)">÷2</button>
         <span class="oct-val" hidden></span>
         <button class="oct-double" title="double tempo (fix octave)">×2</button>
       </div>
-      <div class="nudge">
+      <div class="nudge lock">
         <button class="nminus" title="shift one beat earlier">−</button>
         <span class="nval">0</span><small>beat</small>
         <button class="nplus" title="shift one beat later">+</button>
       </div>
-      <button class="retake" title="discard & record again" hidden>↻ again</button>
-      <button class="mute" title="mute">M</button>
-      <button class="remove" title="remove">✕</button>
+      <button class="retake lock" title="discard & record again" hidden>↻ again</button>
+      <button class="mute lock" title="mute">M</button>
+      <button class="remove lock" title="remove">✕</button>
     </div>
     <canvas class="wave"></canvas>`;
   const canvas = row.querySelector(".wave");

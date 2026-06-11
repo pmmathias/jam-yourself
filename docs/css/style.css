@@ -89,5 +89,10 @@
 .jy .vid-out { display:block; width:100%; max-height:520px; background:#000; border:1px solid var(--gray-800); border-radius:1rem; margin-top:4px; }
 .jy .vid-actions { margin-top:10px; }
 
+/* while the mix is playing, controls that would rebuild the mix don't make
+   sense — grey them out and the waveform's click-to-set-start too. */
+.jy.playing .lock { opacity:.4; pointer-events:none; }
+.jy.playing canvas.wave { pointer-events:none; cursor:default; }
+
 .jy footer { color:var(--gray-500); font-size:12px; text-align:center; margin-top:36px; }
 .jy footer a { color:var(--cyan); text-decoration:underline; text-decoration-color:rgba(34,211,238,.4); text-underline-offset:3px; }
