@@ -458,7 +458,9 @@ export function mountApp(rootEl, opts = {}) {
         downbeat: t._anchor, warpFn: t._warpFn, nudge: t.nudge }));
       const blob = await renderTiledVideo(specs, wavBlob(state.mix, SR), {
         period: state.period, durationSec: state.mix.length / SR,
-        onProgress: (p) => { vstat.textContent = `rendering video … ${Math.round(Math.min(1, Math.max(0, p)) * 100)}%`; },
+        onProgress: (overall, label) => {
+          vstat.textContent = `${label || "rendering"} … ${Math.round(Math.min(1, Math.max(0, overall)) * 100)}%`;
+        },
       });
       if (lastVideoUrl) URL.revokeObjectURL(lastVideoUrl);
       lastVideoUrl = URL.createObjectURL(blob);

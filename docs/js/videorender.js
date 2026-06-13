@@ -51,11 +51,22 @@ export async function renderTiledVideo(specs, mixWavBlob, {
   period, fps = 30, cellW = 360, cellH = 360, durationSec,
   onProgress = null, onLog = null,
 } = {}) {
-  const ff = await getFFmpeg({ onProgress, onLog });
   const n = specs.length;
+  // One monotonic 0..1 across all passes (n tile pre-passes + 1 compose) instead
+  // of each ffmpeg exec resetting 0->100%. Each exec's raw progress maps into its
+  // own slice [stage/STAGES, (stage+1)/STAGES]; a label says what's happening so
+  // the gaps (file writes, engine load) read as "preparing …", not "stuck".
+  const STAGES = n + 1;
+  let stage = 0, label = "preparing";
+  const emit = (sub = 0) => onProgress &&
+    onProgress(Math.max(0, Math.min(1, (stage + Math.max(0, Math.min(1, sub))) / STAGES)), label);
+
+  label = "loading video engine";
+  const ff = await getFFmpeg({ onProgress: (p) => emit(p), onLog });
 
   // stage 1 — warp+scale each take to a tile
   for (let i = 0; i < n; i++) {
+    stage = i; label = `preparing tile ${i + 1}/${n}`; emit(0);
     const s = specs[i];
     await ff.writeFile(`in${i}.${s.ext}`, await fetchFile(s.blob));
     const fitDur = Math.max(2, s.warpFn.xs[s.warpFn.xs.length - 1]);
@@ -66,9 +77,11 @@ export async function renderTiledVideo(specs, mixWavBlob, {
     await ff.exec(["-ss", s.downbeat.toFixed(4), "-i", `in${i}.${s.ext}`,
       "-vf", vf, "-an", "-c:v", "libx264", "-preset", "ultrafast",
       "-pix_fmt", "yuv420p", `w${i}.mp4`]);
+    emit(1);
   }
 
   // stage 2 — overlay tiles on black + locked mix as audio
+  stage = n; label = "composing video"; emit(0);
   await ff.writeFile("mix.wav", await fetchFile(mixWavBlob));
   const { cols, rows } = grid(n);
   const GW = cols * cellW, GH = rows * cellH;
@@ -95,6 +108,7 @@ export async function renderTiledVideo(specs, mixWavBlob, {
     // full download first.
     "-movflags", "+faststart", "out.mp4");
   await ff.exec(args);
+  emit(1);
 
   const data = await ff.readFile("out.mp4");
   // cleanup FS

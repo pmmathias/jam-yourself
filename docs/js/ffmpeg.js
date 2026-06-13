@@ -6,6 +6,11 @@
 let _ff = null;
 let _util = null;
 let _loading = null;
+// progress/log callbacks are stored at module level and updated on every
+// getFFmpeg call, so a SECOND render rewires them instead of keeping the first
+// render's stale closure (the cached ff only attaches its listeners once).
+let _onProgress = null;
+let _onLog = null;
 
 const url = (p) => new URL(p, import.meta.url).href;
 
@@ -15,13 +20,14 @@ async function utilMod() {
 }
 
 export async function getFFmpeg({ onLog = null, onProgress = null } = {}) {
+  _onProgress = onProgress; _onLog = onLog;   // refresh for every render
   if (_ff) return _ff;
   if (_loading) return _loading;
   _loading = (async () => {
     const { FFmpeg } = await import(url("../vendor/ffmpeg/ffmpeg/index.js"));
     const ff = new FFmpeg();
-    if (onLog) ff.on("log", ({ message }) => onLog(message));
-    if (onProgress) ff.on("progress", ({ progress }) => onProgress(progress));
+    ff.on("log", ({ message }) => _onLog && _onLog(message));
+    ff.on("progress", ({ progress }) => _onProgress && _onProgress(progress));
     await ff.load({
       coreURL: url("../vendor/ffmpeg/core/ffmpeg-core.js"),
       wasmURL: url("../vendor/ffmpeg/core/ffmpeg-core.wasm"),
