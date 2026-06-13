@@ -4,44 +4,34 @@
 // tiles are overlaid on black with the engine's locked mix as the soundtrack.
 import { getFFmpeg, fetchFile } from "./ffmpeg.js";
 
-// ---- least-squares polynomial fit (normal equations + Gaussian elimination) -
-function polyfit(xs, ys, deg) {
-  const n = xs.length, m = deg + 1;
-  const A = Array.from({ length: m }, () => new Float64Array(m));
-  const b = new Float64Array(m);
-  const pow = xs.map((x) => { const p = new Float64Array(2 * deg + 1); let v = 1; for (let k = 0; k <= 2 * deg; k++) { p[k] = v; v *= x; } return p; });
-  for (let i = 0; i < n; i++) {
-    for (let r = 0; r < m; r++) {
-      b[r] += pow[i][r] * ys[i];
-      for (let c = 0; c < m; c++) A[r][c] += pow[i][r + c];
-    }
+// setpts expression for the warp curve, built PIECEWISE-LINEAR straight from the
+// warp knots (take-time xs -> grid-time ys, one knot per beat) — the same knots
+// the audio is stretched through. A previous version fitted a single degree-<=5
+// polynomial to the whole curve, which can't follow ~35 per-beat wiggles (or the
+// slope kink between count-in and played tempo), so the picture drifted from its
+// own sound by tens of ms in places on takes that weren't dead steady. Linear
+// interpolation is exact at every beat and within a few ms between beats (where
+// the audio's PCHIP is near-linear anyway), keeping video locked to the mix.
+function setptsExpr(warpFn, offset) {
+  let X = Array.from(warpFn.xs), Y = Array.from(warpFn.ys);
+  // cap knots so the ffmpeg expression stays parseable on very long takes;
+  // decimate uniformly but always keep the last knot.
+  const MAXK = 120;
+  if (X.length > MAXK) {
+    const step = X.length / MAXK, nx = [], ny = [];
+    for (let i = 0; i < MAXK; i++) { const j = Math.min(X.length - 1, Math.round(i * step)); nx.push(X[j]); ny.push(Y[j]); }
+    if (nx[nx.length - 1] !== X[X.length - 1]) { nx.push(X[X.length - 1]); ny.push(Y[Y.length - 1]); }
+    X = nx; Y = ny;
   }
-  // solve A x = b
-  for (let col = 0; col < m; col++) {
-    let piv = col; for (let r = col + 1; r < m; r++) if (Math.abs(A[r][col]) > Math.abs(A[piv][col])) piv = r;
-    [A[col], A[piv]] = [A[piv], A[col]]; [b[col], b[piv]] = [b[piv], b[col]];
-    const d = A[col][col] || 1e-12;
-    for (let c = col; c < m; c++) A[col][c] /= d; b[col] /= d;
-    for (let r = 0; r < m; r++) if (r !== col) { const f = A[r][col]; for (let c = col; c < m; c++) A[r][c] -= f * A[col][c]; b[r] -= f * b[col]; }
-  }
-  return Array.from(b); // coeffs low->high
-}
-
-// setpts expression "max(0,(T + poly(T) + offset))/TB" for warp curve fn.
-function setptsExpr(warpFn, fitDur, offset, maxDeg = 5) {
-  const N = 200;
-  const ts = Array.from({ length: N }, (_, i) => (i / (N - 1)) * fitDur);
-  const corr = ts.map((t) => warpFn.evalScalar(t) - t);
-  for (let deg = Math.min(maxDeg, N - 1); deg >= 1; deg--) {
-    const c = polyfit(ts, corr, deg);            // low->high
-    const f = (t) => { let v = 0; for (let k = c.length - 1; k >= 0; k--) v = v * t + c[k]; return t + v; };
-    let mono = true; for (let i = 1; i < N; i++) if (f(ts[i]) <= f(ts[i - 1])) { mono = false; break; }
-    if (!mono) continue;
-    const terms = ["T"];
-    c.forEach((coef, k) => { if (k === 0) terms.push(`(${coef.toExponential(8)})`); else terms.push(`(${coef.toExponential(8)})*pow(T\\,${k})`); });
-    return `max(0\\,(${terms.join("+")})+(${offset.toExponential(8)}))`;
-  }
-  return `max(0\\,T+(${offset.toExponential(8)}))`; // fallback: identity + offset
+  const n = X.length;
+  const e = (v) => v.toExponential(8);
+  if (n < 2) return `max(0\\,T+(${e(offset)}))`;            // degenerate: identity + offset
+  const slope = (i) => (Y[i + 1] - Y[i]) / Math.max(1e-9, X[i + 1] - X[i]);
+  const seg = (i) => `(${e(Y[i])}+(T-(${e(X[i])}))*(${e(slope(i))}))`;
+  // beyond the last knot, extrapolate with the final segment's slope
+  let expr = `(${e(Y[n - 1])}+(T-(${e(X[n - 1])}))*(${e(slope(n - 2))}))`;
+  for (let i = n - 2; i >= 0; i--) expr = `if(lt(T\\,${e(X[i + 1])})\\,${seg(i)}\\,${expr})`;
+  return `max(0\\,(${expr})+(${e(offset)}))`;
 }
 
 function grid(n) { const cols = n <= 3 ? n : Math.ceil(Math.sqrt(n)); return { cols, rows: Math.ceil(n / cols) }; }
@@ -69,10 +59,9 @@ export async function renderTiledVideo(specs, mixWavBlob, {
     stage = i; label = `preparing tile ${i + 1}/${n}`; emit(0);
     const s = specs[i];
     await ff.writeFile(`in${i}.${s.ext}`, await fetchFile(s.blob));
-    const fitDur = Math.max(2, s.warpFn.xs[s.warpFn.xs.length - 1]);
     // offset = whole-beat nudge + the sub-beat 'tighten' shift applied to this
     // take's audio in the mix, so the picture stays locked to the heard sound.
-    const expr = setptsExpr(s.warpFn, fitDur, (s.nudge || 0) * period + (s.tightenSec || 0));
+    const expr = setptsExpr(s.warpFn, (s.nudge || 0) * period + (s.tightenSec || 0));
     const vf = `setpts=(${expr})/TB,fps=${fps},`
       + `scale=${cellW}:${cellH}:force_original_aspect_ratio=decrease,`
       + `pad=${cellW}:${cellH}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
