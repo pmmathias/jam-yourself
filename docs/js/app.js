@@ -412,12 +412,32 @@ export function mountApp(rootEl, opts = {}) {
 
   $(".play").onclick = () => { if (state.transport.playing) stopPlay(); else startPlay(); };
   $(".metro").onchange = (e) => { state.metro = e.target.checked; if (state.transport.playing) startPlay(); };
-  $(".download").onclick = () => {
-    if (!state.mix) return;
-    const url = URL.createObjectURL(wavBlob(state.mix, SR));
-    const a = document.createElement("a"); a.href = url; a.download = "jam.wav"; a.click();
-    URL.revokeObjectURL(url);
-  };
+  $(".download").onclick = () => state.mix && saveOrShare(wavBlob(state.mix, SR), "jam.wav");
+
+  // Save/share a blob. On mobile (secure context + a user gesture) prefer the
+  // native share sheet — "Save to Photos", WhatsApp, AirDrop … — because a
+  // plain <a download> is ignored by iOS Safari. Falls back to a download link
+  // on desktop or where file-sharing isn't supported.
+  async function saveOrShare(blob, filename) {
+    const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: filename }); return; }
+      catch (e) { if (e && e.name === "AbortError") return; } // user dismissed sheet
+    }
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = u; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 10000);
+  }
+  // on devices that can share files, label the buttons as "share" (the sheet
+  // offers Save to Photos / Files / WhatsApp); elsewhere they download.
+  try {
+    const probe = new File([new Uint8Array(1)], "p.mp4", { type: "video/mp4" });
+    if (navigator.canShare && navigator.canShare({ files: [probe] })) {
+      $(".vid-dl").textContent = "⤴ share / save video";
+      $(".download").textContent = "⤴ share WAV";
+    }
+  } catch (e) {}
   $(".keep-countin").onchange = (e) => { state.keepCountin = e.target.checked; recompute(); };
   $(".tighten").onchange = (e) => { state.tighten = e.target.checked; recompute(); };
   $(".view-aligned").onchange = () => refreshAll();
@@ -450,11 +470,7 @@ export function mountApp(rootEl, opts = {}) {
       console.error(e);
     } finally { $(".render-vid").disabled = false; }
   };
-  $(".vid-dl").onclick = () => {
-    if (!state.videoBlob) return;
-    const u = URL.createObjectURL(state.videoBlob);
-    const a = document.createElement("a"); a.href = u; a.download = "jam.mp4"; a.click(); URL.revokeObjectURL(u);
-  };
+  $(".vid-dl").onclick = () => state.videoBlob && saveOrShare(state.videoBlob, "jam.mp4");
 
   // record from mic / camera (with live camera preview + retake)
   const fmtT = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;

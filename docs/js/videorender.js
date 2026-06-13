@@ -89,7 +89,11 @@ export async function renderTiledVideo(specs, mixWavBlob, {
     "-filter_complex", parts.join(";"),
     "-map", "[vout]", "-map", `${n}:a`,
     "-t", dur, "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-    "-r", String(fps), "-c:a", "aac", "-b:a", "192k", "-shortest", "out.mp4");
+    "-r", String(fps), "-c:a", "aac", "-b:a", "192k", "-shortest",
+    // faststart: move the moov atom to the front so the file plays/streams and
+    // shares cleanly on mobile (Save to Photos / WhatsApp) instead of needing a
+    // full download first.
+    "-movflags", "+faststart", "out.mp4");
   await ff.exec(args);
 
   const data = await ff.readFile("out.mp4");
