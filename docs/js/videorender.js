@@ -70,7 +70,9 @@ export async function renderTiledVideo(specs, mixWavBlob, {
     const s = specs[i];
     await ff.writeFile(`in${i}.${s.ext}`, await fetchFile(s.blob));
     const fitDur = Math.max(2, s.warpFn.xs[s.warpFn.xs.length - 1]);
-    const expr = setptsExpr(s.warpFn, fitDur, (s.nudge || 0) * period);
+    // offset = whole-beat nudge + the sub-beat 'tighten' shift applied to this
+    // take's audio in the mix, so the picture stays locked to the heard sound.
+    const expr = setptsExpr(s.warpFn, fitDur, (s.nudge || 0) * period + (s.tightenSec || 0));
     const vf = `setpts=(${expr})/TB,fps=${fps},`
       + `scale=${cellW}:${cellH}:force_original_aspect_ratio=decrease,`
       + `pad=${cellW}:${cellH}:(ow-iw)/2:(oh-ih)/2,setsar=1`;

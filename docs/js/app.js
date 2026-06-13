@@ -286,8 +286,8 @@ export function mountApp(rootEl, opts = {}) {
       const partner = state.tracks.find((p) => p.id === t.pairedWith);
       if (partner && partner._warpFn) {
         t._warpFn = partner._warpFn; t._anchor = t.analysis.downbeat;
-        t._aligned = shiftSamples(alignedAudio(t, partner._warpFn, t._anchor, period),
-                                  partner._tightenShift || 0);
+        t._tightenShift = partner._tightenShift || 0; // sync picture to partner's shifted sound
+        t._aligned = shiftSamples(alignedAudio(t, partner._warpFn, t._anchor, period), t._tightenShift);
       } else { t._warpFn = null; t._aligned = null; }
     }
 
@@ -455,7 +455,10 @@ export function mountApp(rootEl, opts = {}) {
     vstat.textContent = "loading video engine (first run downloads ffmpeg.wasm) …";
     try {
       const specs = vids.map((t) => ({ blob: t.videoBlob, ext: t.videoExt || "webm",
-        downbeat: t._anchor, warpFn: t._warpFn, nudge: t.nudge }));
+        downbeat: t._anchor, warpFn: t._warpFn, nudge: t.nudge,
+        // same sub-beat 'tighten' shift the mix applied to this take's AUDIO, so
+        // the picture stays locked to the sound you hear (else video drifts by it).
+        tightenSec: (t._tightenShift || 0) / SR }));
       const blob = await renderTiledVideo(specs, wavBlob(state.mix, SR), {
         period: state.period, durationSec: state.mix.length / SR,
         onProgress: (overall, label) => {
